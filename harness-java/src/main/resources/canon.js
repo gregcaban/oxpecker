@@ -13,7 +13,7 @@
   'use strict';
   var jtype = helpers.jtype;        // Java host: simple class name of the Java object
   var isProxy = helpers.isProxy;    // Java host: instanceof NativeProxy
-  var MAX_DEPTH = 8, MAX_NODES = 2000, MAX_ARRAY = 200, MAX_STRING = 400;
+  var MAX_DEPTH = 8, MAX_NODES = 600, MAX_ARRAY = 200, MAX_STRING = 400;
 
   var ownKeys = Reflect.ownKeys;
   var gopd = Object.getOwnPropertyDescriptor;
@@ -191,6 +191,18 @@
       var jt = jtype(v);
       if (jt === 'NativeJavaObject' || jt === 'NativeJavaArray' || jt === 'NativeJavaClass') return '@' + id + '[Java ' + helpers.javaClass(v) + ']';
       if (isProxy(v)) return '@' + id + '[Proxy]';
+      // The global object and builtin prototypes are huge and identical in both modes; walking
+      // them costs thousands of nodes per probe. Render them as tokens instead.
+      if (v === global) return '@' + id + '[global]';
+      for (var pi = 0; pi < protoNames.length; pi++) if (protoNames[pi][0] === v) return '@' + id + '[' + protoNames[pi][1] + ']';
+      if (typeof v === 'function') {
+        var nsrc;
+        try { nsrc = call.call(fnToString, v); } catch (e) { nsrc = ''; }
+        if (nsrc.indexOf('[native code]') >= 0) {
+          var nname = dataProp(v, 'name');
+          return '@' + id + '[native ' + (typeof nname === 'string' ? nname : '?') + '/' + dataProp(v, 'length') + ']';
+        }
+      }
       if (depth > MAX_DEPTH) return '@' + id + '…depth';
       var tag = tagOf(v);
       var head = '@' + id + tag.slice(8, -1);

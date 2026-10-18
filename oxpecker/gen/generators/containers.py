@@ -42,8 +42,12 @@ def gen_sparse_array(b: ProgramBuilder):
 def gen_object(b: ProgramBuilder):
     """An object literal with data properties, maybe numeric or computed keys."""
     props = []
+    used: set[str] = set()
     for _ in range(b.rand_int(0, 4)):
         key = b.choice(KEYS[:-1]) if b.maybe(0.8) else f"[{b.expr(T.STRING, literal)}]"
+        if key == "__proto__" and key in used:
+            continue        # a second literal __proto__ is a SyntaxError
+        used.add(key)
         props.append(f"{key}: {b.expr(b.choice([T.NUMBER, T.STRING, T.BOOLEAN, T.OBJECT]), literal)}")
     return b.fresh(T.OBJECT, "{" + ", ".join(props) + "}")
 

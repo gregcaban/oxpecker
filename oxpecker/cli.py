@@ -259,14 +259,14 @@ def cmd_diff(args: argparse.Namespace) -> int:
         if isinstance(x, list) and isinstance(y, list):
             for i, (p, q) in enumerate(zip(x, y)):
                 if p != q:
-                    _show_diff(f"{field}[{i}]", str(p), str(q), modes)
+                    _show_diff(f"{field}[{i}]", str(p), str(q), modes, ctx=args.context)
                     break
             else:
                 print(f"{field}: length {len(x)} vs {len(y)}")
                 extra = x[len(y):] or y[len(x):]
                 print(f"  extra in {modes[0] if len(x) > len(y) else modes[1]}: {str(extra[0])[:200]}")
         else:
-            _show_diff(field, json.dumps(x) if isinstance(x, dict) else str(x), json.dumps(y) if isinstance(y, dict) else str(y), modes)
+            _show_diff(field, json.dumps(x) if isinstance(x, dict) else str(x), json.dumps(y) if isinstance(y, dict) else str(y), modes, ctx=args.context)
     return 0
 
 
@@ -397,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("diff", help="run one file and show where the modes first differ, per field")
     d.add_argument("path")
     d.add_argument("--strict", action="store_true")
+    d.add_argument("--context", type=int, default=60, help="characters of context around the first difference")
     _add_run_options(d)
     d.set_defaults(fn=cmd_diff)
 

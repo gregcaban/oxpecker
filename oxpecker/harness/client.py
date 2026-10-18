@@ -171,12 +171,18 @@ class HarnessClient:
         if "error" in resp:
             raise HarnessError(resp["error"])
         results = {m: Outcome.from_json(o) for m, o in resp.get("results", {}).items()}
+        watchdog = any(o.status == "timeout" and o.reason == "watchdog" for o in results.values())
         for m in modes:
             if m not in results:
-                # The harness stopped before running this mode (watchdog / OOM in an earlier mode).
-                results[m] = Outcome(mode=m, status="crash", reason="not-run",
-                                     engineException={"clazz": "JVM", "message": "mode not run: harness asked for a restart "
-                                                      "(watchdog or OutOfMemoryError in an earlier mode)", "stack": ""})
+                # The harness stopped before running this mode: after a watchdog timeout (then this
+                # mode is simply unknown: count it as a timeout too, so the case is discarded rather
+                # than reported) or after an OutOfMemoryError (a crash).
+                if watchdog:
+                    results[m] = Outcome(mode=m, status="timeout", reason="not-run-after-watchdog")
+                else:
+                    results[m] = Outcome(mode=m, status="crash", reason="not-run",
+                                         engineException={"clazz": "JVM", "message": "mode not run: harness asked for a "
+                                                          "restart (OutOfMemoryError in an earlier mode)", "stack": ""})
         if resp.get("restart"):
             restarted = True
             self.restart()

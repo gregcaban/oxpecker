@@ -155,7 +155,7 @@ def tpl_jit2_functions(b: ProgramBuilder):
 
     # Change the callee: redefine f2 in place, or (if f1 calls through a variable) repoint it.
     newbody = f"function({', '.join('p' + str(i) for i in range(nparams2))}) {{ return {b.choice(PERTURB)}; }}"
-    b.emit(f"{callee_name} = {newbody};    // change the callee f1's direct call depends on")
+    b.emit(f"{callee_name} = {newbody};    // change the callee {f1}'s direct call depends on")
     b.probe("changed")
 
     # Call again through both call sites to trigger recompilation / relinking.

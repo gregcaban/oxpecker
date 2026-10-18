@@ -140,6 +140,7 @@ def load_all() -> None:
         return
     from .generators import (  # noqa: F401
         values, containers, operations, properties, calls, control, compiler, exotic, toggled, java, continuations,
+        fz_objects, fz_control, fz_exotic, fz_api,
     )
     from . import templates  # noqa: F401
     _loaded = True
