@@ -38,6 +38,8 @@ public final class JavaProbe {
     private static String show(Object o, int depth) {
         if (o == null) return "null";
         if (depth > 3) return "…";
+        // JS objects implement java.util.Map/List; their contents are the probes' business.
+        if (o instanceof org.mozilla.javascript.Scriptable) return "<" + cls(o) + ">";
         if (o instanceof Double d) {
             if (d.isNaN()) return "NaN";
             if (d == 0 && 1 / d < 0) return "-0.0";

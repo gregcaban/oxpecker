@@ -36,6 +36,10 @@ class Verdict:
         first = re.sub(r"trace\[\d+\]", "trace[]", first)
         first = re.sub(r"arg\d+", "arg", first)
         first = re.sub(r"java\[\d+\]", "java[]", first)
+        first = re.sub(r"@\d+", "@", first)
+        # Numbers become '#', except zero: -0 vs 0 is its own class of bug.
+        first = re.sub(r"(?<![A-Za-z_#])(-?)(\d+(\.\d+)?(e[+-]?\d+)?)",
+                       lambda m: m.group(1) + "0" if float(m.group(2)) == 0 else "#", first)
         return f"{self.kind}:{first}"
 
     def to_json(self) -> dict:
@@ -99,7 +103,7 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
         for i, (x, y) in enumerate(zip(a.trace, b.trace)):
             if x != y:
                 first_diff = i
-                reasons.append(f"trace[{i}] {_short(x)} vs {_short(y)}")
+                reasons.append(f"trace[{i}] {_arg_diff(x, y)}")
                 break
         else:
             first_diff = min(len(a.trace), len(b.trace))
@@ -168,6 +172,19 @@ def compare_run(run: RunResult, *, reference: str = "interpreted", strict_java_t
             worst.reasons.extend(r for r in v.reasons if r not in worst.reasons)
             worst.java_type_diff.extend(j for j in v.java_type_diff if j not in worst.java_type_diff)
     return worst or Verdict(EQUAL)
+
+
+def _arg_diff(x: str, y: str) -> str:
+    """The first probe argument that differs, so reports and signatures point at the value rather
+    than the whole snapshot."""
+    xs, ys = x.split(" | "), y.split(" | ")
+    for j, (p, q) in enumerate(zip(xs, ys)):
+        if p != q:
+            k = next((c for c, (u, v) in enumerate(zip(p, q)) if u != v), min(len(p), len(q)))
+            lo = max(0, k - 30)
+            pre = "…" if lo else ""
+            return f"arg{j} {pre}{_short(p[lo:], 70)} vs {pre}{_short(q[lo:], 70)}"
+    return f"arity {len(xs)} vs {len(ys)}"
 
 
 def _short(s: str | None, n: int = 80) -> str:

@@ -232,6 +232,46 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------- diff
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Runs one file and shows, per field, where the two modes' outcomes first differ."""
+    from .harness.client import HarnessClient
+    from .harness.compare import compare_run
+
+    path = Path(args.path)
+    modes = tuple(args.modes.split(","))
+    with HarnessClient(quiet=True) as client:
+        run = client.run(path.read_text(encoding="utf-8"), modes=modes, language_version=args.language_version,
+                         strict=args.strict, id=path.stem, source_name=path.name, wall_ms=args.wall_ms)
+    a, b = run.results[modes[0]], run.results[modes[1]]
+    print(f"verdict: {compare_run(run, strict_java_types=args.strict_java_types).pretty()}\n")
+    for field in ("status", "compiledActually", "value", "valueJavaTypes", "thrown", "trace", "traceJavaTypes",
+                  "javaTrace", "javaTraceTypes", "output", "soft", "reason"):
+        x, y = getattr(a, field), getattr(b, field)
+        if x == y:
+            continue
+        if isinstance(x, list) and isinstance(y, list):
+            for i, (p, q) in enumerate(zip(x, y)):
+                if p != q:
+                    _show_diff(f"{field}[{i}]", str(p), str(q), modes)
+                    break
+            else:
+                print(f"{field}: length {len(x)} vs {len(y)}")
+                extra = x[len(y):] or y[len(x):]
+                print(f"  extra in {modes[0] if len(x) > len(y) else modes[1]}: {str(extra[0])[:200]}")
+        else:
+            _show_diff(field, json.dumps(x) if isinstance(x, dict) else str(x), json.dumps(y) if isinstance(y, dict) else str(y), modes)
+    return 0
+
+
+def _show_diff(label: str, x: str, y: str, modes: tuple[str, ...], ctx: int = 60) -> None:
+    i = next((k for k, (p, q) in enumerate(zip(x, y)) if p != q), min(len(x), len(y)))
+    lo = max(0, i - ctx)
+    print(f"{label}: first difference at char {i}")
+    print(f"  {modes[0]:12} …{x[lo:i]}▶{x[i:i + ctx]}…")
+    print(f"  {modes[1]:12} …{y[lo:i]}▶{y[i:i + ctx]}…")
+
+
 # ----------------------------------------------------------------------------- listing
 def cmd_list(args: argparse.Namespace) -> int:
     load_all()
@@ -305,6 +345,12 @@ def main(argv: list[str] | None = None) -> int:
     _add_run_options(c)
     c.set_defaults(fn=cmd_corpus)
     c.set_defaults(language_version=250, strict=False)
+
+    d = sub.add_parser("diff", help="run one file and show where the modes first differ, per field")
+    d.add_argument("path")
+    d.add_argument("--strict", action="store_true")
+    _add_run_options(d)
+    d.set_defaults(fn=cmd_diff)
 
     ls = sub.add_parser("list", help="list generators and templates")
     ls.add_argument("--toggle", action="append")

@@ -183,6 +183,6 @@ def gen_recursion(b: ProgramBuilder):
         base = b.expr(T.NUMBER, literal)
         step = b.choice(["n - 1", "n - 2", "n / 2 | 0"])
         combine = b.choice([f"{f}({step}) + 1", f"{f}({step}) * 2", f"1 + {f}({step})", f"[{f}({step}), n]"])
-        b.emit(f"if (n <= 0) return {base};")
+        b.emit(f"if (n {b.choice(['<=', '===', '==', '<'])} 0) return {base};")
         b.emit(f"return {combine};")
     b.fresh(T.UNKNOWN, f"{f}({b.rand_int(0, 12)})")

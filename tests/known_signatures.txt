@@ -1,0 +1,5 @@
+# Finding signatures (oxpecker.harness.compare.Verdict.signature) already captured in
+# tests/regressions. The property test logs these to tests/findings/hard.jsonl but does not
+# fail on them, so a long run keeps looking for new divergences. One per line; # comments.
+hard:value -0 vs 0
+hard:trace[] arg -0 vs 0
