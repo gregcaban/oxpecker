@@ -4,6 +4,7 @@
   oxpecker gen -n 50 -o out/ --run     ... and run them through the harness, writing verdicts
   oxpecker run out/ tests/regressions/ run existing .js files through the harness
   oxpecker list                        generators and templates
+  oxpecker corpus test262 [--filter language/statements/try] [--limit N]   replay a corpus
 """
 
 from __future__ import annotations
@@ -168,6 +169,69 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 1 if hard else 0
 
 
+# ----------------------------------------------------------------------------- corpora
+def cmd_corpus(args: argparse.Namespace) -> int:
+    from .corpora import test262
+    from .harness.client import HarnessClient
+    from .harness.compare import compare_run
+
+    if args.corpus != "test262":
+        print(f"unknown corpus {args.corpus}", file=sys.stderr)
+        return 2
+    if args.known_divergences:
+        for p, modes in sorted(test262.known_divergences().items()):
+            print(f"{','.join(sorted(modes)):22} {p}")
+        return 0
+
+    out_dir = Path(args.out) if args.out else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    modes = tuple(args.modes.split(","))
+    counts: Counter[str] = Counter()
+    status_counts: dict[str, Counter[str]] = {m: Counter() for m in modes}
+    sigs: Counter[str] = Counter()
+    n = 0
+    t0 = time.time()
+    log = (out_dir / "results.jsonl").open("w", encoding="utf-8") if out_dir else None
+    with HarnessClient(quiet=True) as client:
+        for case in test262.cases(filter=args.filter, limit=args.limit, strict_variants=not args.no_strict_variants,
+                                  only_known=args.only_known):
+            n += 1
+            run = client.run(case.source, modes=modes, language_version=args.language_version,
+                             id=case.id, source_name=case.path, wall_ms=args.wall_ms)
+            v = compare_run(run, strict_java_types=args.strict_java_types)
+            counts[v.kind] += 1
+            for m, o in run.results.items():
+                status_counts[m][o.status] += 1
+            rec = {"id": case.id, "path": case.path, "strict": case.strict, "tags": case.tags,
+                   "verdict": v.to_json(), "results": run.to_json()["results"]}
+            if log:
+                log.write(json.dumps(rec) + "\n")
+            if v.kind in ("hard", "java-types"):
+                sigs[v.signature()] += 1
+            known = case.tags.get("knownDivergence")
+            if v.is_finding or known or args.verbose:
+                flag = f"  (rhino: fails in {known})" if known else ""
+                print(f"{case.id:70} {v.pretty()[:110]}{flag}")
+                if v.is_finding and out_dir:
+                    name = case.path.replace("/", "__") + ("--strict" if case.strict else "") + ".js"
+                    (out_dir / name).write_text(case.source, encoding="utf-8")
+            if n % 500 == 0:
+                print(f"... {n} cases, {n / (time.time() - t0):.1f}/s", file=sys.stderr)
+    if log:
+        log.close()
+    elapsed = time.time() - t0
+    print(f"\n{n} cases in {elapsed:.1f}s ({n / max(elapsed, 1e-9):.1f}/s), JVM restarts: {client.restarts}")
+    print("verdicts: " + ", ".join(f"{k}={c}" for k, c in sorted(counts.items())))
+    for m in modes:
+        print(f"  {m:12} " + ", ".join(f"{k}={c}" for k, c in sorted(status_counts[m].items())))
+    if sigs:
+        print("unique finding signatures:")
+        for sig, c in sigs.most_common(30):
+            print(f"  {c:5}  {sig}")
+    return 0
+
+
 # ----------------------------------------------------------------------------- listing
 def cmd_list(args: argparse.Namespace) -> int:
     load_all()
@@ -229,6 +293,18 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--strict", action="store_true", help="prepend \"use strict\"")
     _add_run_options(r)
     r.set_defaults(fn=cmd_run)
+
+    c = sub.add_parser("corpus", help="replay a corpus (test262) through the harness")
+    c.add_argument("corpus", choices=["test262"])
+    c.add_argument("--filter", help="path prefix under test262/test, e.g. language/statements/try")
+    c.add_argument("--limit", type=int, help="stop after N test files")
+    c.add_argument("--only-known", action="store_true", help="only files test262.properties tags per mode")
+    c.add_argument("--known-divergences", action="store_true", help="list those files and exit")
+    c.add_argument("--no-strict-variants", action="store_true", help="run only the sloppy variant")
+    c.add_argument("-o", "--out", help="directory for results.jsonl and finding sources")
+    _add_run_options(c)
+    c.set_defaults(fn=cmd_corpus)
+    c.set_defaults(language_version=250, strict=False)
 
     ls = sub.add_parser("list", help="list generators and templates")
     ls.add_argument("--toggle", action="append")

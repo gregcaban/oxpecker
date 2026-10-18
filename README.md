@@ -68,7 +68,17 @@ confirmed ones move to `tests/regressions/` where `test_harness.py` checks they 
 | both timeout/resource | discard |
 
 Java types are recorded for every number/string leaf the probes and the completion value see,
-because Rhino embedders observe them at the Java boundary.
+because Rhino embedders observe them at the Java boundary. Where the raw representation is
+visible to Java, and where it is not:
+
+- **Host `Callable`s** (`__probe`, any `LambdaFunction`/`FunctionObject` an embedder installs),
+  the **script completion value**, `Function.call` return values and **properties read from JS
+  objects** (`ScriptableObject.getProperty`) all hand Java the raw object: `Integer` from
+  compiled code, `Double` from the interpreter. This is what the `java-types` verdict catches.
+- **LiveConnect method calls** (`J.echo(x)`, any `NativeJavaMethod`) coerce arguments first:
+  every JS number becomes `Double` for an `Object` parameter (`NativeJavaObject.coerceTypeImpl`),
+  or `Long` when `FEATURE_INTEGER_WITHOUT_DECIMAL_PLACE` is on. Differences there are
+  conversion/overload bugs rather than representation leaks; `JavaProbe` traces both.
 
 ## Layout
 
