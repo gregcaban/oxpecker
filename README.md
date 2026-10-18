@@ -84,6 +84,9 @@ Checked in under `tests/regressions/` (each must stay detected; `test_harness.py
 - `compiled-increment-int32-overflow.js` — `++`/`--` on top-level vars, activation locals, properties and elements wrap at int32 in compiled mode.
 - `arrow-function-has-prototype-compiled.js` — arrow functions get a `prototype` property in compiled mode.
 - `interpreted-computed-super-update.js` — `++super[k]` returns the key and `super[k]--` creates an own `"0"` property in the interpreter.
+- `interpreted-super-increment-string-concat.js` — `super.x++` on a string concatenates (`"a1"`) in the interpreter.
+- `compiled-proxy-extra-has-trap-on-get.js` — `p.x` through a Proxy fires `has` before `get` in compiled mode.
+- `array-find-no-args-aioobe-both-modes.js` — `Array.find()` throws a raw `ArrayIndexOutOfBoundsException` past JS try/catch.
 - `tests/seeds/` — the two test262 cases Rhino's own `test262.properties` tags as failing in one mode only, reproduced standalone.
 
 Java types are recorded for every number/string leaf the probes and the completion value see,
