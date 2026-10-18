@@ -81,6 +81,9 @@ Checked in under `tests/regressions/` (each must stay detected; `test_harness.py
 - `java-int-literal-double-vs-integer.js` — the same number reaches Java as `Double` (interpreter) vs `Integer` (compiler).
 - `spread-in-call-crashes-both-modes.js` — `f(...a)` throws a raw `RuntimeException` from both evaluators instead of a SyntaxError.
 - `callsite-tostring-npe-both-modes.js` — `String(new CallSite())` is a `NullPointerException` in both modes.
+- `compiled-increment-int32-overflow.js` — `++`/`--` on top-level vars, activation locals, properties and elements wrap at int32 in compiled mode.
+- `arrow-function-has-prototype-compiled.js` — arrow functions get a `prototype` property in compiled mode.
+- `interpreted-computed-super-update.js` — `++super[k]` returns the key and `super[k]--` creates an own `"0"` property in the interpreter.
 - `tests/seeds/` — the two test262 cases Rhino's own `test262.properties` tags as failing in one mode only, reproduced standalone.
 
 Java types are recorded for every number/string leaf the probes and the completion value see,
