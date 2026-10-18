@@ -26,7 +26,10 @@ def gen_unary(b: ProgramBuilder):
     """Unary operator applied to an existing value or literal."""
     op = b.choice(UNARY)
     out_t = T.STRING if op == "typeof " else T.BOOLEAN if op == "!" else T.UNDEFINED if op == "void " else T.NUMBER
-    b.fresh(out_t, f"{op}{operand(b, b.choice([T.NUMBER, T.INT32, T.STRING]))}")
+    x = operand(b, b.choice([T.NUMBER, T.INT32, T.STRING]))
+    if x[:1] in "-+":
+        x = f"({x})"        # `--1` / `+-1` would parse as an update operator
+    b.fresh(out_t, f"{op}{x}")
 
 
 @generator("binary_arith", family="operations", weight=5, output=T.NUMBER)

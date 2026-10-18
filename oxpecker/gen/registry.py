@@ -142,5 +142,5 @@ def load_all() -> None:
         values, containers, operations, properties, calls, control, compiler, exotic, toggled, java, continuations,
         fz_objects, fz_control, fz_exotic, fz_api,
     )
-    from . import templates  # noqa: F401
+    from . import templates, templates_fz  # noqa: F401
     _loaded = True

@@ -105,12 +105,16 @@ def tpl_deep_closures(b: ProgramBuilder):
 @template("strict_vs_sloppy_body", weight=2)
 def tpl_strict_vs_sloppy_body(b: ProgramBuilder):
     """The same generated statements inside a strict and a sloppy function, results compared."""
+    # `with` / direct eval are SyntaxErrors inside the strict copy: drop sloppy-only generators.
+    saved_pool = b.pool
+    b.pool = [g for g in b.pool if not g.sloppy_only] or b.pool
     with b.capture() as body:
         b.indent += 1
         b.scopes.append(type(b.scopes[-1])("function"))
         statements(b, 1, max(1, b.opts.max_statements // 2))
         b.scopes.pop()
         b.indent -= 1
+    b.pool = saved_pool
     inner_vars = sorted({ln.text.split()[1] for ln in body if ln.text.startswith("var ") and ln.indent == 1})
     ret = "return [" + ", ".join(v for v in inner_vars if v) + "];"
     fs = b.declare(T.FUNCTION)
