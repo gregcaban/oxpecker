@@ -59,7 +59,8 @@ def gen_getter_side_effect(b: ProgramBuilder):
     counter = b.fresh(T.INT32, "0")
     o = b.declare(T.OBJECT)
     key = b.choice(["x", "0", "length"])
-    effect = b.choice([f"{counter}++", f"delete this.{key}", f"this.y = {counter}", f"Object.freeze(this)",
+    self_ref = f"this.{key}" if key != "0" else "this[0]"
+    effect = b.choice([f"{counter}++", f"delete {self_ref}", f"this.y = {counter}", f"Object.freeze(this)",
                        f"{counter} = \"s\""])
     b.emit(f"var {o} = {{ get {key}() {{ {effect}; return {counter}; }} }};")
     b.fresh(T.UNKNOWN, f"{o}.{key} + {o}.{key}" if key != "0" else f"{o}[0] + {o}[0]")

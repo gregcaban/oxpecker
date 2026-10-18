@@ -102,7 +102,8 @@ def gen_finally_abrupt(b: ProgramBuilder):
         try_c = b.choice(["return 'try';", "throw 'try';", f"{count} += 1;"])
         catch_c = b.choice(["return 'catch';", "throw 'catch';", f"{count} += 10;"])
         fin_c = b.choice(["return 'finally';", "throw 'finally';", f"{count} += 100;"])
-        if b.maybe(0.5):
+        in_loop = b.maybe(0.5)
+        if in_loop:
             b.emit("for (var k = 0; k < 2; k++) {")
             b.indent += 1
             fin_c = b.choice([fin_c, "break;", "continue;"])
@@ -119,7 +120,7 @@ def gen_finally_abrupt(b: ProgramBuilder):
         b.emit(fin_c)
         b.indent -= 1
         b.emit("}")
-        if b.lines[-9].text.startswith("for (var k"):
+        if in_loop:
             b.indent -= 1
             b.emit("}")
         b.emit("return 'end';")

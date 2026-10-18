@@ -318,7 +318,7 @@ class ProgramBuilder:
                                       and ln.text and not ln.text.startswith("//") and not ln.text.startswith("}")),
             "vars": sum(len(s.vars) for s in self.scopes) + sum(self.counters.values()),
             "maxDepth": max((ln.indent for ln in self.lines), default=0),
-            "probes": self.probe_count,
+            "probes": sum(1 for ln in self.lines if ln.text.lstrip().startswith("__probe(")),
             "bytes": len(self.render(header=())),
         }
 

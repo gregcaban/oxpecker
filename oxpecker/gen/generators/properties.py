@@ -13,7 +13,7 @@ def key_expr(b: ProgramBuilder) -> str:
     """A property key: identifier, string, number or computed."""
     r = b.rand_int(0, 3)
     if r == 0:
-        return "." + b.choice(KEYS[:-1])
+        return "." + b.choice([k for k in KEYS if not k.isdigit() and k != "__proto__"])
     if r == 1:
         return f"[{b.choice(['0', '1', '2', '-1', '1.5', '4294967295', '\"0\"', '\"a\"', '\"length\"'])}]"
     if r == 2:
