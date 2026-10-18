@@ -4,7 +4,7 @@
   oxpecker gen -n 50 -o out/ --run     ... and run them through the harness, writing verdicts
   oxpecker run out/ tests/regressions/ run existing .js files through the harness
   oxpecker list                        generators and templates
-  oxpecker corpus test262 [--filter language/statements/try] [--limit N]   replay a corpus
+  oxpecker corpus test262|rhino-jstests|rhino-mozilla [--filter PREFIX] [--limit N]   replay a corpus
 """
 
 from __future__ import annotations
@@ -175,9 +175,8 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     from .harness.client import HarnessClient
     from .harness.compare import compare_run
 
-    if args.corpus != "test262":
-        print(f"unknown corpus {args.corpus}", file=sys.stderr)
-        return 2
+    from .corpora import rhino_tests
+
     if args.known_divergences:
         for p, modes in sorted(test262.known_divergences().items()):
             print(f"{','.join(sorted(modes)):22} {p}")
@@ -193,12 +192,19 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     n = 0
     t0 = time.time()
     log = (out_dir / "results.jsonl").open("w", encoding="utf-8") if out_dir else None
+    if args.corpus == "test262":
+        it = test262.cases(filter=args.filter, limit=args.limit, strict_variants=not args.no_strict_variants,
+                           only_known=args.only_known)
+    elif args.corpus == "rhino-jstests":
+        it = rhino_tests.jstests(filter=args.filter, limit=args.limit)
+    else:
+        it = rhino_tests.mozilla(filter=args.filter, limit=args.limit)
     with HarnessClient(quiet=True) as client:
-        for case in test262.cases(filter=args.filter, limit=args.limit, strict_variants=not args.no_strict_variants,
-                                  only_known=args.only_known):
+        for case in it:
             n += 1
             run = client.run(case.source, modes=modes, language_version=args.language_version,
-                             id=case.id, source_name=case.path, wall_ms=args.wall_ms)
+                             id=case.id, source_name=case.path, strict=case.strict and args.corpus != "test262",
+                             wall_ms=args.wall_ms)
             v = compare_run(run, strict_java_types=args.strict_java_types)
             counts[v.kind] += 1
             for m, o in run.results.items():
@@ -358,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     r.set_defaults(fn=cmd_run)
 
     c = sub.add_parser("corpus", help="replay a corpus (test262) through the harness")
-    c.add_argument("corpus", choices=["test262"])
+    c.add_argument("corpus", choices=["test262", "rhino-jstests", "rhino-mozilla"])
     c.add_argument("--filter", help="path prefix under test262/test, e.g. language/statements/try")
     c.add_argument("--limit", type=int, help="stop after N test files")
     c.add_argument("--only-known", action="store_true", help="only files test262.properties tags per mode")

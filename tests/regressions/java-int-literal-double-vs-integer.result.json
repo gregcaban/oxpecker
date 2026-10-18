@@ -33,7 +33,7 @@
       "output": [],
       "engineException": null,
       "reason": null,
-      "ms": 12
+      "ms": 8
     },
     "compiled": {
       "mode": "compiled",
@@ -55,7 +55,7 @@
       "output": [],
       "engineException": null,
       "reason": null,
-      "ms": 24
+      "ms": 15
     }
   }
 }

@@ -256,8 +256,16 @@ def tpl_json_fuzzer(b: ProgramBuilder):
             return "[" + ", ".join(value(depth - 1) for _ in range(n)) + "]"
         n = b.rand_int(0, 4)
         parts = []
+        used_literal_proto = False
         for _ in range(n):
             key = b.choice(['"a"', '"b"', '"0"', '"1"', '"__proto__"', '"length"', '"z"'])
+            if key == '"__proto__"':
+                # A second non-computed `__proto__:` key is a SyntaxError; the computed form
+                # (`["__proto__"]:`) isn't subject to that restriction, so use it for repeats.
+                if used_literal_proto:
+                    key = '["__proto__"]'
+                else:
+                    used_literal_proto = True
             parts.append(f"{key}: {value(depth - 1)}")
         return "{" + ", ".join(parts) + "}"
 

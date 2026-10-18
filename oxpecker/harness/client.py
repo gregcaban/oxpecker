@@ -174,7 +174,9 @@ class HarnessClient:
         for m in modes:
             if m not in results:
                 # The harness stopped before running this mode (watchdog / OOM in an earlier mode).
-                results[m] = Outcome(mode=m, status="crash", reason="not-run")
+                results[m] = Outcome(mode=m, status="crash", reason="not-run",
+                                     engineException={"clazz": "JVM", "message": "mode not run: harness asked for a restart "
+                                                      "(watchdog or OutOfMemoryError in an earlier mode)", "stack": ""})
         if resp.get("restart"):
             restarted = True
             self.restart()

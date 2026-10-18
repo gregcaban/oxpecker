@@ -144,18 +144,22 @@ def gen_object_constructor(b: ProgramBuilder):
 @generator("this_value", family="objects", weight=2, output=T.UNKNOWN)
 def gen_this_value(b: ProgramBuilder):
     """`this`: at top level, inside a sloppy function (boxed global), inside a strict function
-    (undefined when called plainly), and as a method's receiver via .call()."""
+    (undefined when called plainly), and as a method's receiver via .call(). The global-object
+    cases compare against globalThis rather than binding the (huge, self-referential) global
+    object itself into a variable, which the harness's value inspection cannot walk quickly."""
     kind = b.rand_int(0, 3)
     if kind == 0:
-        b.fresh(T.UNKNOWN, "this")
+        b.fresh(T.BOOLEAN, "this === globalThis")
     elif kind == 1:
         f = b.declare(T.FUNCTION)
-        b.emit(f"function {f}() {{ return this; }}")
-        b.fresh(T.UNKNOWN, f"{f}()    // sloppy: boxed global object")
+        b.emit(f"function {f}() {{ return this === globalThis; }}")
+        b.comment("sloppy: this is the boxed global object")
+        b.fresh(T.BOOLEAN, f"{f}()")
     elif kind == 2:
         f = b.declare(T.FUNCTION)
         b.emit(f'function {f}() {{ "use strict"; return this; }}')
-        b.fresh(T.UNKNOWN, f"{f}()    // strict: undefined when called plainly")
+        b.comment("strict: undefined when called plainly")
+        b.fresh(T.UNKNOWN, f"{f}()")
     else:
         recv = b.pick_or_make(T.OBJECT)
         b.fresh(T.UNKNOWN, f"(function () {{ return this; }}).call({recv})")
@@ -166,6 +170,11 @@ def gen_builtin_ref(b: ProgramBuilder):
     """A reference to a global builtin by name: a constructor, namespace object, global function
     or well-known value, used directly or probed with typeof."""
     name = b.choice(BUILTINS)
+    if name == "globalThis":
+        # Binding the global object itself lets later state probes walk its (huge,
+        # self-referential) property graph; compare it instead.
+        b.fresh(T.BOOLEAN, "globalThis === this")
+        return
     if b.maybe(0.5):
         b.fresh(T.UNKNOWN, name)
     else:
