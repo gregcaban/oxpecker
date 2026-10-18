@@ -301,6 +301,25 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------- export
+def cmd_export(args: argparse.Namespace) -> int:
+    from . import inspector
+
+    opts = GenOptions(toggles=frozenset(args.toggle or ()), strict=args.strict,
+                      max_statements=args.max_statements, min_statements=args.min_statements)
+    out = inspector.export(Path(args.out), per_generator=args.per_generator, per_template=args.per_template,
+                           seed=args.seed, opts=opts, language_version=args.language_version)
+    print(f"exported to {out}\n")
+    inspector.print_table(out / "metrics.json", worst=args.worst)
+    return 0
+
+
+def cmd_metrics(args: argparse.Namespace) -> int:
+    from . import inspector
+    inspector.print_table(Path(args.path) / "metrics.json", worst=args.worst)
+    return 0
+
+
 # ----------------------------------------------------------------------------- listing
 def cmd_list(args: argparse.Namespace) -> int:
     load_all()
@@ -380,6 +399,24 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--strict", action="store_true")
     _add_run_options(d)
     d.set_defaults(fn=cmd_diff)
+
+    ex = sub.add_parser("export", help="sample every generator/template through the harness; write ui/data/<run>")
+    ex.add_argument("-o", "--out", default="ui/data")
+    ex.add_argument("--per-generator", type=int, default=20)
+    ex.add_argument("--per-template", type=int, default=20)
+    ex.add_argument("--seed", type=int, default=0)
+    ex.add_argument("--min-statements", type=int, default=3)
+    ex.add_argument("--max-statements", type=int, default=8)
+    ex.add_argument("--toggle", action="append")
+    ex.add_argument("--strict", action="store_true")
+    ex.add_argument("--language-version", type=int, default=200)
+    ex.add_argument("--worst", type=int, default=25, help="rows in the printed quality table")
+    ex.set_defaults(fn=cmd_export)
+
+    mt = sub.add_parser("metrics", help="print the quality table of an exported run")
+    mt.add_argument("path")
+    mt.add_argument("--worst", type=int, default=None)
+    mt.set_defaults(fn=cmd_metrics)
 
     pr = sub.add_parser("probe", help="probe Rhino's builtins/syntax and refresh the environment model")
     pr.add_argument("--language-version", type=int, default=250)

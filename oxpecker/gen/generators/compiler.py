@@ -43,9 +43,16 @@ def gen_numeric_local_type_flip(b: ProgramBuilder):
             b.emit(f"{victim} = {b.choice(PERTURB)};    // type perturbation")
             b.emit(f"{b.choice(locals_)} = {victim} + {b.choice(locals_ + params)};")
         b.emit(f"return {' + '.join(str(v) for v in locals_)};")
-    b.fresh(T.NUMBER, f"{f}({b.choice(INT32S)}, {b.choice(INT32S)})")
-    b.fresh(T.NUMBER, f"{f}({b.choice(NUMBERS)}, {b.choice(NUMBERS)})")
-    b.fresh(T.NUMBER, f"{f}({b.choice(PERTURB)}, {b.choice(INT32S)})")
+    acc = b.fresh(T.ARRAY, "[]")
+    # BigInt/Symbol perturbations make the arithmetic throw: keep the later calls alive.
+    for call in (f"{f}({b.choice(INT32S)}, {b.choice(INT32S)})", f"{f}({b.choice(NUMBERS)}, {b.choice(NUMBERS)})",
+                 f"{f}({b.choice(PERTURB)}, {b.choice(INT32S)})"):
+        tb = b.try_block()
+        with tb.body():
+            b.emit(f"{acc}.push({call});")
+        with tb.catch("e"):
+            b.emit(f"{acc}.push(e && e.name);")
+        tb.end()
 
 
 @generator("activation_pair", family="compiler-targeted", weight=5)

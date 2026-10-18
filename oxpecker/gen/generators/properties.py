@@ -98,10 +98,15 @@ def gen_for_in(b: ProgramBuilder, obj: Var):
 def gen_proto_mutation(b: ProgramBuilder, obj: Var, proto: Var):
     """Change an object's prototype (setPrototypeOf / __proto__) between property accesses."""
     before = b.fresh(T.UNKNOWN, f"{obj}.{b.choice(['x', 'a', 'toString'])}")
-    if b.maybe(0.5):
-        b.emit(f"Object.setPrototypeOf({obj}, {proto});")
-    else:
-        b.emit(f"{obj}.__proto__ = {proto};")
+    tb = b.try_block()
+    with tb.body():
+        if b.maybe(0.5):
+            b.emit(f"Object.setPrototypeOf({obj}, {proto});")
+        else:
+            b.emit(f"{obj}.__proto__ = {proto};")
+    with tb.catch("e"):
+        b.emit("// cyclic prototype chain or non-extensible object")
+    tb.end()
     b.fresh(T.UNKNOWN, f"{obj}.{b.choice(['x', 'a', 'toString'])}")
     b.fresh(T.BOOLEAN, f"{before} === {obj}.x")
 
