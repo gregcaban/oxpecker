@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: oxpecker
+Version: 0.1.0
+Summary: Differential testing of Mozilla Rhino: interpreted vs compiled mode
+Requires-Python: >=3.11
+Requires-Dist: hypothesis>=6.100
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-xdist>=3; extra == "dev"

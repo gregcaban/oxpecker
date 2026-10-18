@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oxpecker"
+version = "0.1.0"
+description = "Differential testing of Mozilla Rhino: interpreted vs compiled mode"
+requires-python = ">=3.11"
+dependencies = [
+    "hypothesis>=6.100",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-xdist>=3"]
+
+[project.scripts]
+oxpecker = "oxpecker.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["oxpecker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
