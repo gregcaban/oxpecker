@@ -13,7 +13,7 @@ from oxpecker.gen.builder import GenOptions
 from oxpecker.gen.registry import GENERATORS, TEMPLATES, load_all
 from oxpecker.gen.strategies import programs
 
-ALL_TOGGLES = frozenset({"let", "generators", "for-of", "destructuring", "spread"})
+ALL_TOGGLES = frozenset({"let", "generators", "for-of", "destructuring", "spread", "continuations"})
 
 
 def test_registry_loads():

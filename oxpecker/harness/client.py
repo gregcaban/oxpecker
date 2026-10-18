@@ -28,6 +28,7 @@ class Outcome:
     traceJavaTypes: list[str] = field(default_factory=list)
     javaTrace: list[str] = field(default_factory=list)
     javaTraceTypes: list[str] = field(default_factory=list)
+    continuations: list[str] = field(default_factory=list)
     soft: list[str] = field(default_factory=list)
     output: list[str] = field(default_factory=list)
     engineException: dict[str, Any] | None = None
@@ -145,13 +146,15 @@ class HarnessClient:
 
     def run(self, source: str, *, modes: tuple[str, ...] = DEFAULT_MODES, language_version: int = 200,
             strict: bool = False, instruction_budget: int = 5_000_000, wall_ms: int = 5000, seed: int = 1,
-            id: str | None = None, source_name: str = "case.js") -> RunResult:
+            id: str | None = None, source_name: str = "case.js", continuations: bool | None = None) -> RunResult:
         """Runs one case in every mode. If the JVM dies or asks to be restarted, the missing modes
         are reported as crash/timeout and the JVM is restarted."""
         case_id = id or uuid.uuid4().hex[:12]
         req = {"id": case_id, "source": source, "modes": list(modes), "languageVersion": language_version,
                "strict": strict, "instructionBudget": instruction_budget, "wallMs": wall_ms, "seed": seed,
-               "sourceName": source_name}
+               "sourceName": source_name,
+               # Auto-detected unless stated: only scripts that pause need the continuation runner.
+               "continuations": ("__pause" in source or "Continuation" in source) if continuations is None else continuations}
         if self.cases_since_start >= self.recycle_every:
             self.restart()
         self.cases_since_start += 1

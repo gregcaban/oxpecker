@@ -12,6 +12,8 @@ public final class Outcome {
     public static final String RESOURCE = "resource";
     public static final String FALLBACK = "fallback";
     public static final String CRASH = "crash";
+    /** A Rhino feature this mode does not implement (currently: continuations). */
+    public static final String UNSUPPORTED = "unsupported";
 
     public String mode;
     /** Whether the script actually ran through the bytecode compiler (see ModeRunner#wasCompiled). */
@@ -30,6 +32,8 @@ public final class Outcome {
     public List<String> javaTrace = new ArrayList<>();
     /** Runtime classes seen at each J.* call, parallel to {@link #javaTrace}. */
     public List<String> javaTraceTypes = new ArrayList<>();
+    /** Continuation pause/resume events (compared strictly). */
+    public List<String> continuations = new ArrayList<>();
     /** Error messages encountered during canonicalisation (compared softly). */
     public List<String> soft = new ArrayList<>();
     /** Captured print() output. */

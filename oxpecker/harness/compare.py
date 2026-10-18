@@ -84,7 +84,9 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
         return Verdict(SOFT, [f"{o.mode} {o.status} ({o.reason}) while {(b if o is a else a).mode} {(b if o is a else a).status}"])
 
     if a.status != b.status:
-        reasons.append(f"status {a.mode}={a.status} vs {b.mode}={b.status}")
+        def st(o: Outcome) -> str:
+            return o.status + (f"({o.reason})" if o.status == "unsupported" else "")
+        reasons.append(f"status {a.mode}={st(a)} vs {b.mode}={st(b)}")
         if a.thrown or b.thrown:
             reasons.append(f"thrown {_thrown_sig(a)[0]} vs {_thrown_sig(b)[0]}")
         return Verdict(HARD, reasons)
@@ -110,6 +112,8 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
             reasons.append(f"trace length {len(a.trace)} vs {len(b.trace)}")
     if a.output != b.output:
         reasons.append(f"output differs: {_short(str(a.output))} vs {_short(str(b.output))}")
+    if a.continuations != b.continuations:
+        reasons.append(f"continuations {_short(str(a.continuations))} vs {_short(str(b.continuations))}")
     if a.javaTrace != b.javaTrace:
         for i, (x, y) in enumerate(zip(a.javaTrace, b.javaTrace)):
             if x != y:

@@ -20,6 +20,14 @@ public final class Request {
     public Long wallMs;
     /** Seed for the prelude's Math.random replacement. */
     public Long seed;
+    /**
+     * Run through Context.executeScriptWithContinuations where the script is interpreted, so
+     * that __pause() can capture a continuation; the harness resumes it. Compiled scripts
+     * cannot do this, which is itself a mode difference under test.
+     */
+    public Boolean continuations;
+    /** Maximum number of pause/resume rounds per run. */
+    public Integer maxResumes;
 
     public static final int DEFAULT_LANGUAGE_VERSION = 200;
     public static final long DEFAULT_INSTRUCTION_BUDGET = 5_000_000L;
@@ -43,6 +51,14 @@ public final class Request {
 
     public long seed() {
         return seed == null ? 1L : seed;
+    }
+
+    public boolean continuations() {
+        return continuations != null && continuations;
+    }
+
+    public int maxResumes() {
+        return maxResumes == null ? 50 : maxResumes;
     }
 
     public String sourceName() {

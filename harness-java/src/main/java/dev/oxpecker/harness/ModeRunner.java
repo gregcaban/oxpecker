@@ -11,6 +11,7 @@ import org.mozilla.javascript.RhinoException;
 import org.mozilla.javascript.Script;
 import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.TopLevel;
+import org.mozilla.javascript.Undefined;
 import org.mozilla.javascript.WrappedException;
 
 /** Runs one case in one mode, on a dedicated thread with a fixed stack size and a watchdog. */
@@ -101,7 +102,7 @@ final class ModeRunner {
                     return o;
                 }
 
-                Object r = script.exec(cx, scope, global);
+                Object r = execute(cx, scope, global, script, req, host, o);
                 RhinoCompat.drainMicrotasks(cx);
                 Host.Canonical k = host.canon(cx, r);
                 o.value = k.text();
@@ -131,6 +132,17 @@ final class ModeRunner {
             } catch (OutOfMemoryError e) {
                 poisoned = true;
                 return crash(o, e);
+            } catch (IllegalStateException e) {
+                // Rhino refuses continuation capture outside the interpreter / outside
+                // executeScriptWithContinuations: a by-design mode difference, not a crash.
+                String msg = String.valueOf(e.getMessage());
+                if (msg.contains("continuation") || msg.contains("Interpreter frames")) {
+                    o.status = Outcome.UNSUPPORTED;
+                    o.reason = "continuations";
+                    o.engineException = Outcome.describe(e);
+                    return o;
+                }
+                return crash(o, e);
             } catch (RuntimeException | LinkageError | AssertionError e) {
                 // Anything else out of Rhino is an engine bug (VerifyError, NPE in codegen, ...).
                 return crash(o, e);
@@ -139,6 +151,7 @@ final class ModeRunner {
                 o.traceJavaTypes = host.traceJavaTypes;
                 o.output = host.output;
                 o.soft = host.soft;
+                o.continuations = host.continuations;
                 o.javaTrace = host.java.trace;
                 o.javaTraceTypes = host.java.types;
                 if (o.compiledActually == null && script != null) o.compiledActually = wasCompiled(script, mode);
@@ -150,6 +163,42 @@ final class ModeRunner {
             o.engineException = Outcome.describe(e);
             o.reason = "setup";
             return o;
+        }
+    }
+
+    /**
+     * Runs the script; with continuations requested and an interpreted script, runs it through
+     * executeScriptWithContinuations and resumes each captured continuation with the paused
+     * value, logging every round. A compiled script runs plainly: its __pause() calls fail
+     * inside Rhino, which the normal exception classification reports.
+     */
+    private static Object execute(Context cx, TopLevel scope, ScriptableObject global, Script script,
+            Request req, Host host, Outcome o) {
+        if (!req.continuations() || !Boolean.FALSE.equals(o.compiledActually)) {
+            return script.exec(cx, scope, global);
+        }
+        org.mozilla.javascript.ContinuationPending pending;
+        try {
+            return cx.executeScriptWithContinuations(script, scope);
+        } catch (org.mozilla.javascript.ContinuationPending p) {
+            pending = p;
+        }
+        for (int round = 0; ; round++) {
+            Object paused = pending.getApplicationState();
+            Host.Canonical k = host.canon(cx, paused);
+            host.continuations.add("pause(" + k.text() + ")");
+            if (round >= req.maxResumes()) {
+                host.continuations.add("abandoned");
+                return Undefined.instance;
+            }
+            // Resume with the paused value itself, so `var x = __pause(v)` sees x === v.
+            try {
+                Object r = cx.resumeContinuation(pending.getContinuation(), scope, paused);
+                host.continuations.add("end");
+                return r;
+            } catch (org.mozilla.javascript.ContinuationPending p) {
+                pending = p;
+            }
         }
     }
 

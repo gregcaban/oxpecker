@@ -122,6 +122,7 @@ public final class Harness {
                 case "--wall-ms" -> req.wallMs = Long.parseLong(args[++i]);
                 case "--seed" -> req.seed = Long.parseLong(args[++i]);
                 case "--json" -> req.cmd = "json";
+                case "--continuations" -> req.continuations = true;
                 default -> file = Path.of(args[i]);
             }
         }
@@ -149,6 +150,7 @@ public final class Harness {
             for (int i = 0; i < o.javaTrace.size(); i++) {
                 System.out.println("java[" + i + "]: " + o.javaTrace.get(i) + "   classes=" + o.javaTraceTypes.get(i));
             }
+            for (String s : o.continuations) System.out.println("continuation: " + s);
             for (String s : o.output) System.out.println("out: " + s);
             for (String s : o.soft) System.out.println("soft: " + s);
             if (o.engineException != null) {

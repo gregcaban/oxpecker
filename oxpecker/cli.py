@@ -246,7 +246,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
     a, b = run.results[modes[0]], run.results[modes[1]]
     print(f"verdict: {compare_run(run, strict_java_types=args.strict_java_types).pretty()}\n")
     for field in ("status", "compiledActually", "value", "valueJavaTypes", "thrown", "trace", "traceJavaTypes",
-                  "javaTrace", "javaTraceTypes", "output", "soft", "reason"):
+                  "javaTrace", "javaTraceTypes", "continuations", "output", "soft", "reason"):
         x, y = getattr(a, field), getattr(b, field)
         if x == y:
             continue
@@ -301,7 +301,7 @@ def _add_gen_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-comments", action="store_true", help="no `// [generator]` markers")
     p.add_argument("--no-swarm", action="store_true", help="enable all generators in every program")
     p.add_argument("--toggle", action="append", metavar="NAME",
-                   help="enable partial-support features: let, generators, for-of, destructuring, spread")
+                   help="enable partial-support features: let, generators, for-of, destructuring, spread, continuations")
     p.add_argument("--generator", action="append", metavar="NAME", help="only these generators (repeatable)")
     p.add_argument("--template", action="append", metavar="NAME", help="only these templates (repeatable)")
 

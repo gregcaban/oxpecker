@@ -33,6 +33,8 @@ final class Host {
     final List<String> soft = new ArrayList<>();
 
     final JavaProbe java = new JavaProbe();
+    /** Pause/resume events: "pause(<canon value>)", "resume(<value>)". Part of the trace. */
+    final List<String> continuations = new ArrayList<>();
     private Callable canon;
     private Callable errName;
     private TopLevel scope;
@@ -77,6 +79,15 @@ final class Host {
                 trace.add(text.toString());
                 traceJavaTypes.add(jt.toString());
                 return Undefined.instance;
+            });
+            define(scope, "__pause", 1, (c, s, thisObj, args) -> {
+                // Captures the interpreter continuation and unwinds to ModeRunner, which records
+                // the value and resumes. Outside executeScriptWithContinuations (compiled mode,
+                // or called through eval/Java frames) Rhino throws IllegalStateException.
+                Object v = args.length > 0 ? args[0] : Undefined.instance;
+                org.mozilla.javascript.ContinuationPending pending = c.captureContinuation();
+                pending.setApplicationState(v);
+                throw pending;
             });
             define(scope, "__isProxy", 1, (c, s, thisObj, args) -> args.length > 0 && isProxy(args[0]));
             define(scope, "__jtype", 1, (c, s, thisObj, args) -> args.length > 0 ? jtype(args[0]) : "void");
