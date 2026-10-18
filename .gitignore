@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.hypothesis/
+.pytest_cache/
+harness-java/.gradle/
+harness-java/build/
+.gradle/
+build/
+ui/node_modules/
+ui/.next/
+ui/data/
+runs/
+*.heap_dump
+.DS_Store

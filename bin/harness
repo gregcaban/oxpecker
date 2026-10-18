@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the Java harness with the JDK Rhino needs. Build first: (cd harness-java && ./gradlew fatJar)
+JAVA="${OXPECKER_JAVA:-/usr/local/opt/openjdk@21/bin/java}"
+exec "$JAVA" -Xss64m -jar "$(dirname "$0")/../harness-java/build/libs/oxpecker-harness-all.jar" "$@"

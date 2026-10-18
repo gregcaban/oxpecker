@@ -1,0 +1,47 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'dev.oxpecker'
+version = '0.1.0'
+
+repositories {
+    mavenLocal()   // Rhino built from ../rhino at the pinned commit: ./gradlew :rhino:publishToMavenLocal
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.mozilla:rhino:${rhinoVersion}"
+    implementation 'com.google.code.gson:gson:2.11.0'
+    testImplementation platform('org.junit:junit-bom:5.11.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+application {
+    mainClass = 'dev.oxpecker.harness.Harness'
+}
+
+// Single runnable jar: java -jar build/libs/oxpecker-harness-all.jar --replay case.js
+tasks.register('fatJar', Jar) {
+    archiveBaseName = 'oxpecker-harness'
+    archiveClassifier = 'all'
+    archiveVersion = ''
+    manifest { attributes 'Main-Class': 'dev.oxpecker.harness.Harness' }
+    from sourceSets.main.output
+    dependsOn configurations.runtimeClasspath
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+test {
+    useJUnitPlatform()
+    systemProperty 'file.encoding', 'UTF-8'
+    testLogging { events 'failed'; exceptionFormat 'full' }
+}
