@@ -26,6 +26,10 @@ public final class Outcome {
     public List<String> trace = new ArrayList<>();
     /** Java runtime types for each probe snapshot, parallel to {@link #trace}. */
     public List<String> traceJavaTypes = new ArrayList<>();
+    /** What Java received/returned at each J.* call: values (compared strictly). */
+    public List<String> javaTrace = new ArrayList<>();
+    /** Runtime classes seen at each J.* call, parallel to {@link #javaTrace}. */
+    public List<String> javaTraceTypes = new ArrayList<>();
     /** Error messages encountered during canonicalisation (compared softly). */
     public List<String> soft = new ArrayList<>();
     /** Captured print() output. */

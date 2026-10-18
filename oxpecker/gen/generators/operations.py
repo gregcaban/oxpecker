@@ -32,7 +32,11 @@ def gen_unary(b: ProgramBuilder):
 @generator("binary_arith", family="operations", weight=5, output=T.NUMBER)
 def gen_binary_arith(b: ProgramBuilder):
     """Arithmetic on two operands; `+` doubles as concatenation when a string sneaks in."""
-    b.fresh(T.NUMBER, f"{operand(b)} {b.choice(ARITH)} {operand(b)}")
+    op = b.choice(ARITH)
+    left = operand(b)
+    if op == "**":
+        left = f"({left})"      # `-1 ** 2` is a SyntaxError; a unary operand must be parenthesised
+    b.fresh(T.NUMBER, f"{left} {op} {operand(b)}")
 
 
 @generator("binary_bitwise", family="operations", weight=3, output=T.INT32)

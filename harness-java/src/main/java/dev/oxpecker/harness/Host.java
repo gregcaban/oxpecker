@@ -32,6 +32,7 @@ final class Host {
     final List<String> traceJavaTypes = new ArrayList<>();
     final List<String> soft = new ArrayList<>();
 
+    final JavaProbe java = new JavaProbe();
     private Callable canon;
     private Callable errName;
     private TopLevel scope;
@@ -88,6 +89,11 @@ final class Host {
                             ? (w.unwrap() == null ? "null" : w.unwrap().getClass().getName())
                             : "?"));
             ScriptableObject.putProperty(helpers, "global", global);
+
+            // The Java boundary (LiveConnect wrapping of a plain Java object; no Packages/reflection
+            // beyond this one class). Static state is reset so modes don't see each other.
+            JavaProbe.staticCounter = 0;
+            ScriptableObject.putProperty(global, "J", Context.javaToJS(java, scope, cx));
 
             Script canonScript = cx.compileString(CANON_SRC, "canon.js", 1, null);
             Callable factory = (Callable) canonScript.exec(cx, scope, global);

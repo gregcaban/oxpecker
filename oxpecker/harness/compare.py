@@ -29,9 +29,13 @@ class Verdict:
         """Dedup key: the kind and the first reason / first Java-type difference, with probe
         indices and variable names stripped so the same divergence groups across programs."""
         import re
-        first = (self.reasons or self.java_type_diff or [""])[0]
+        if self.kind == JAVA_TYPES:
+            first = (self.java_type_diff or self.reasons or [""])[0]
+        else:
+            first = (self.reasons or self.java_type_diff or [""])[0]
         first = re.sub(r"trace\[\d+\]", "trace[]", first)
         first = re.sub(r"arg\d+", "arg", first)
+        first = re.sub(r"java\[\d+\]", "java[]", first)
         return f"{self.kind}:{first}"
 
     def to_json(self) -> dict:
@@ -102,6 +106,13 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
             reasons.append(f"trace length {len(a.trace)} vs {len(b.trace)}")
     if a.output != b.output:
         reasons.append(f"output differs: {_short(str(a.output))} vs {_short(str(b.output))}")
+    if a.javaTrace != b.javaTrace:
+        for i, (x, y) in enumerate(zip(a.javaTrace, b.javaTrace)):
+            if x != y:
+                reasons.append(f"java[{i}] {_short(x)} vs {_short(y)}")
+                break
+        else:
+            reasons.append(f"java trace length {len(a.javaTrace)} vs {len(b.javaTrace)}")
     if reasons:
         return Verdict(HARD, reasons, first_trace_diff=first_diff)
 
@@ -119,6 +130,11 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
                         break
                 else:
                     jdiff.append(f"trace[{i}] arity {len(xs)} vs {len(ys)}")
+                break
+    if a.javaTraceTypes != b.javaTraceTypes:
+        for i, (x, y) in enumerate(zip(a.javaTraceTypes, b.javaTraceTypes)):
+            if x != y:
+                jdiff.append(f"java[{i}] {_short(x, 60)} vs {_short(y, 60)}")
                 break
     ta, tb = a.thrown or {}, b.thrown or {}
     if ta.get("valueJavaTypes") != tb.get("valueJavaTypes"):

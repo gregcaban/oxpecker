@@ -139,6 +139,8 @@ final class ModeRunner {
                 o.traceJavaTypes = host.traceJavaTypes;
                 o.output = host.output;
                 o.soft = host.soft;
+                o.javaTrace = host.java.trace;
+                o.javaTraceTypes = host.java.types;
                 if (o.compiledActually == null && script != null) o.compiledActually = wasCompiled(script, mode);
             }
         } catch (RuntimeException | LinkageError | AssertionError e) {

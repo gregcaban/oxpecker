@@ -26,6 +26,8 @@ class Outcome:
     thrown: dict[str, Any] | None = None
     trace: list[str] = field(default_factory=list)
     traceJavaTypes: list[str] = field(default_factory=list)
+    javaTrace: list[str] = field(default_factory=list)
+    javaTraceTypes: list[str] = field(default_factory=list)
     soft: list[str] = field(default_factory=list)
     output: list[str] = field(default_factory=list)
     engineException: dict[str, Any] | None = None

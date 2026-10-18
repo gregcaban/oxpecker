@@ -146,6 +146,9 @@ public final class Harness {
             for (int i = 0; i < o.trace.size(); i++) {
                 System.out.println("trace[" + i + "]: " + o.trace.get(i) + "   javaTypes=" + o.traceJavaTypes.get(i));
             }
+            for (int i = 0; i < o.javaTrace.size(); i++) {
+                System.out.println("java[" + i + "]: " + o.javaTrace.get(i) + "   classes=" + o.javaTraceTypes.get(i));
+            }
             for (String s : o.output) System.out.println("out: " + s);
             for (String s : o.soft) System.out.println("soft: " + s);
             if (o.engineException != null) {
@@ -158,10 +161,12 @@ public final class Harness {
             Outcome a = list.get(0), b = list.get(1);
             boolean same = Objects.equals(a.status, b.status) && Objects.equals(a.value, b.value)
                     && Objects.equals(a.trace, b.trace) && Objects.equals(a.output, b.output)
+                    && Objects.equals(a.javaTrace, b.javaTrace)
                     && Objects.equals(a.thrown == null ? null : a.thrown.name, b.thrown == null ? null : b.thrown.name)
                     && Objects.equals(a.thrown == null ? null : a.thrown.value, b.thrown == null ? null : b.thrown.value);
             boolean sameJava = Objects.equals(a.valueJavaTypes, b.valueJavaTypes)
-                    && Objects.equals(a.traceJavaTypes, b.traceJavaTypes);
+                    && Objects.equals(a.traceJavaTypes, b.traceJavaTypes)
+                    && Objects.equals(a.javaTraceTypes, b.javaTraceTypes);
             System.out.println("== verdict: " + (same ? "SAME" : "DIFF") + (sameJava ? "" : " (java types differ)"));
         }
     }

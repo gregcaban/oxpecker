@@ -186,4 +186,4 @@ def gen_const_site(b: ProgramBuilder):
     """Operations on literal constants that the compiler may fold or link as constants."""
     x = b.choice(NUMBERS)
     b.fresh(T.UNKNOWN, b.choice([f"{x} + 1", f"{x} * 0", f"{x} / 0", f"{x} % 1", f"-({x})", f"{x} === {x}",
-                                 f"{x} | 0", f"{x} >>> 0", f'"" + {x}', f"{x} ** 0.5", f"typeof {x}", f"{x} == \"{x}\""]))
+                                 f"{x} | 0", f"{x} >>> 0", f'"" + {x}', f"({x}) ** 0.5", f"typeof {x}", f"{x} == \"{x}\""]))
