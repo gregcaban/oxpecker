@@ -1,0 +1,60 @@
+{
+  "id": "interpreted-super-increment-string-concat",
+  "file": "tests/regressions/interpreted-super-increment-string-concat.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "value \"a1\" vs NaN",
+      "trace[0] arg1 \"a1\" vs NaN"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": 0,
+    "signature": "hard:value \"a1\" vs NaN"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "ok",
+      "compiledActually": false,
+      "value": "\"a1\"",
+      "valueJavaTypes": "String",
+      "thrown": null,
+      "trace": [
+        "\"p\" | \"a1\" | \"a1\" | \"a\""
+      ],
+      "traceJavaTypes": [
+        "String | ConsString | ConsString | String"
+      ],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 641
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "ok",
+      "compiledActually": true,
+      "value": "NaN",
+      "valueJavaTypes": "Double",
+      "thrown": null,
+      "trace": [
+        "\"p\" | NaN | NaN | \"a\""
+      ],
+      "traceJavaTypes": [
+        "String | Double | Double | String"
+      ],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 150
+    }
+  }
+}
