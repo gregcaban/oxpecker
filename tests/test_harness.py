@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from oxpecker.harness.compare import DISCARD, EQUAL, HARD, SKIP, SOFT, compare_run
+from oxpecker.harness.compare import DISCARD, EQUAL, HARD, JAVA_TYPES, SKIP, SOFT, compare_run
 
 REGRESSIONS = Path(__file__).parent / "regressions"
 SEEDS = Path(__file__).parent / "seeds"
@@ -25,7 +25,7 @@ def test_self_consistency(harness):
         a, b = r1.results[m], r2.results[m]
         assert (a.status, a.value, a.trace, a.output) == (b.status, b.value, b.trace, b.output)
         assert a.traceJavaTypes == b.traceJavaTypes
-    assert compare_run(r1).kind in (EQUAL, SOFT)   # soft: Integer vs Double representation only
+    assert compare_run(r1).kind in (EQUAL, JAVA_TYPES)
 
 
 def test_isolation_canary(harness):
@@ -84,7 +84,7 @@ def test_java_types_are_reported(harness):
     r = harness.run("var s = 'x'; s += 'y'; __probe('p', s, 1.5, 7);")
     assert r.results["interpreted"].traceJavaTypes == ["String | ConsString | Double | Double"]
     assert r.results["compiled"].traceJavaTypes == ["String | ConsString | Double | Integer"]
-    assert compare_run(r).kind == SOFT
+    assert compare_run(r).kind == JAVA_TYPES
     assert compare_run(r, strict_java_types=True).kind == HARD
 
 
@@ -102,10 +102,14 @@ def test_language_version_is_honoured(harness):
 
 @pytest.mark.parametrize("path", sorted(REGRESSIONS.glob("*.js")), ids=lambda p: p.name)
 def test_known_regressions_are_detected(harness, path: Path):
-    """Every checked-in reproducer must still be a hard finding against the pinned Rhino."""
-    r = harness.run(path.read_text(), source_name=path.name)
+    """Every checked-in reproducer must still be a finding against the pinned Rhino. A
+    `// oxpecker-expect: <kind>` header names the expected verdict kind (default: hard)."""
+    src = path.read_text()
+    first = src.splitlines()[0] if src else ""
+    expected = first.split("oxpecker-expect:", 1)[1].strip() if "oxpecker-expect:" in first else HARD
+    r = harness.run(src, source_name=path.name)
     v = compare_run(r)
-    assert v.kind == HARD, v.pretty()
+    assert v.kind == expected, v.pretty()
 
 
 @pytest.mark.parametrize("path", sorted(SEEDS.glob("*.js")), ids=lambda p: p.name)

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from .client import Outcome, RunResult
 
 HARD = "hard"
+JAVA_TYPES = "java-types"   # same JS behaviour, different Java representation at the host boundary
 SOFT = "soft"
 EQUAL = "equal"
 SKIP = "skip"          # fallback: excluded from comparison
@@ -15,18 +16,27 @@ DISCARD = "discard"    # both timeout/resource: a generator problem
 
 @dataclass
 class Verdict:
-    kind: str                                   # equal | hard | soft | skip | discard
+    kind: str                                   # equal | hard | java-types | soft | skip | discard
     reasons: list[str] = field(default_factory=list)
     java_type_diff: list[str] = field(default_factory=list)   # Integer-vs-Double style differences
     first_trace_diff: int | None = None
 
     @property
     def is_finding(self) -> bool:
-        return self.kind in (HARD, SOFT)
+        return self.kind in (HARD, JAVA_TYPES, SOFT)
+
+    def signature(self) -> str:
+        """Dedup key: the kind and the first reason / first Java-type difference, with probe
+        indices and variable names stripped so the same divergence groups across programs."""
+        import re
+        first = (self.reasons or self.java_type_diff or [""])[0]
+        first = re.sub(r"trace\[\d+\]", "trace[]", first)
+        first = re.sub(r"arg\d+", "arg", first)
+        return f"{self.kind}:{first}"
 
     def to_json(self) -> dict:
         return {"kind": self.kind, "reasons": self.reasons, "javaTypeDiff": self.java_type_diff,
-                "firstTraceDiff": self.first_trace_diff}
+                "firstTraceDiff": self.first_trace_diff, "signature": self.signature()}
 
     def pretty(self) -> str:
         s = self.kind.upper()
@@ -116,12 +126,11 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
     soft_reasons: list[str] = []
     if a.soft != b.soft or (ta.get("message") != tb.get("message")):
         soft_reasons.append("error messages differ")
-    if jdiff and strict_java_types:
-        return Verdict(HARD, ["java types differ"], jdiff)
-    if soft_reasons and strict_messages:
-        return Verdict(HARD, soft_reasons, jdiff)
-    if soft_reasons or jdiff:
-        return Verdict(SOFT, soft_reasons, jdiff)
+    if jdiff:
+        # Always reported, never folded into "equal": embedders see these at the Java boundary.
+        return Verdict(HARD if strict_java_types else JAVA_TYPES, ["java types differ"] + soft_reasons, jdiff)
+    if soft_reasons:
+        return Verdict(HARD if strict_messages else SOFT, soft_reasons, jdiff)
     return Verdict(EQUAL, [], [])
 
 
@@ -131,7 +140,7 @@ def compare_run(run: RunResult, *, reference: str = "interpreted", strict_java_t
     ref = run.results.get(reference)
     if ref is None:
         return Verdict(SKIP, [f"no {reference} result"])
-    order = {HARD: 0, SOFT: 1, DISCARD: 2, SKIP: 3, EQUAL: 4}
+    order = {HARD: 0, JAVA_TYPES: 1, SOFT: 2, DISCARD: 3, SKIP: 4, EQUAL: 5}
     worst: Verdict | None = None
     for mode, o in run.results.items():
         if mode == reference:

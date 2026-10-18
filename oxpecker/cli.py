@@ -149,6 +149,14 @@ def run_paths(paths: list[Path], args: argparse.Namespace, *, index_by_id: dict[
     elapsed = time.time() - t0
     print(f"\n{len(files)} cases in {elapsed:.1f}s ({len(files) / max(elapsed, 1e-9):.1f}/s), JVM restarts: {client.restarts}")
     print("verdicts: " + ", ".join(f"{k}={n}" for k, n in sorted(counts.items())))
+    sigs: Counter[str] = Counter()
+    for r in results.values():
+        if r["verdict"]["kind"] in ("hard", "java-types"):
+            sigs[r["verdict"]["signature"]] += 1
+    if sigs:
+        print("unique finding signatures:")
+        for sig, n in sigs.most_common():
+            print(f"  {n:4}  {sig}")
     for m in modes:
         print(f"  {m:12} " + ", ".join(f"{k}={n}" for k, n in sorted(status_counts[m].items())))
     return results

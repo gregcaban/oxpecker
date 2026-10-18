@@ -13,3 +13,4 @@ ui/data/
 runs/
 *.heap_dump
 .DS_Store
+tests/findings/
