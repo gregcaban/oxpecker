@@ -1,0 +1,51 @@
+{
+  "id": "compiled-negative-zero-lost-in-int-arith",
+  "file": "tests/regressions/compiled-negative-zero-lost-in-int-arith.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "value -0 vs 0"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": null,
+    "signature": "hard:value -0 vs 0"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "ok",
+      "compiledActually": false,
+      "value": "-0",
+      "valueJavaTypes": "Double",
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 26
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "ok",
+      "compiledActually": true,
+      "value": "0",
+      "valueJavaTypes": "Integer",
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 36
+    }
+  }
+}

@@ -30,6 +30,10 @@ oxpecker list                                     # generators (82) and template
 oxpecker gen -n 50 -o runs/first --seed 1         # write case-0001.js … for reading
 oxpecker gen -n 50 -o runs/first --seed 1 --run   # … and run them in both modes, print findings
 oxpecker run runs/first tests/regressions -v      # run existing .js files
+oxpecker diff runs/first/case-0007.js             # one file: per-field first difference between modes
+oxpecker corpus test262 --filter language/statements/try   # replay test262 (value-level comparison)
+oxpecker corpus test262 --known-divergences       # files Rhino's test262.properties tags per mode
+oxpecker probe                                    # refresh the Rhino capability table (API generators)
 bin/harness --replay runs/first/case-0007.js      # one file, full per-mode detail
 bin/harness --replay x.js --mode compiled --language-version 250 --budget 0   # no instruction observer
 ```
@@ -38,7 +42,7 @@ Per case: `case-NNNN.js` (with `__probe` state snapshots and `// [generator]` ma
 `case-NNNN.plain.js` (the reproducer form), `case-NNNN.meta.json` (template, generators, line spans,
 stats) and after `--run` `case-NNNN.result.json` (both modes' outcomes + verdict).
 
-Generation knobs: `--toggle let|generators|for-of|destructuring|spread` (partial-support features),
+Generation knobs: `--toggle let|generators|for-of|destructuring|spread|continuations` (partial-support features),
 `--generator NAME` / `--template NAME` (repeatable allowlists), `--max-statements`, `--max-depth`,
 `--probe-every N`, `--no-probes`, `--no-comments`, `--no-swarm`, `--strict`.
 Run knobs: `--language-version 200|250`, `--wall-ms`, `--strict-java-types`.
@@ -66,6 +70,18 @@ confirmed ones move to `tests/regressions/` where `test_harness.py` checks they 
 | only error messages differ | soft |
 | only the **Java representation** differs (`Integer` vs `Double`, `ConsString` vs `String`) | soft, or hard with `--strict-java-types` |
 | both timeout/resource | discard |
+| a mode reports `unsupported(continuations)` (Rhino refuses continuation capture outside the interpreter) | **hard**, own signature |
+
+## Findings so far (pinned Rhino b95f75d)
+
+Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it):
+
+- `direct-recursive-call-completion.js` — direct recursive call with an `n === 0` base case returns a wrong value in compiled mode.
+- `compiled-negative-zero-lost-in-int-arith.js` — `var n = -1; n * 0` is `-0` interpreted, `0` compiled (int-typed top-level variable).
+- `java-int-literal-double-vs-integer.js` — the same number reaches Java as `Double` (interpreter) vs `Integer` (compiler).
+- `spread-in-call-crashes-both-modes.js` — `f(...a)` throws a raw `RuntimeException` from both evaluators instead of a SyntaxError.
+- `callsite-tostring-npe-both-modes.js` — `String(new CallSite())` is a `NullPointerException` in both modes.
+- `tests/seeds/` — the two test262 cases Rhino's own `test262.properties` tags as failing in one mode only, reproduced standalone.
 
 Java types are recorded for every number/string leaf the probes and the completion value see,
 because Rhino embedders observe them at the Java boundary. Where the raw representation is

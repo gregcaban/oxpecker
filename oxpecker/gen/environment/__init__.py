@@ -19,7 +19,7 @@ EXCLUDED_GLOBALS = {"J", "print", "__probe", "__isProxy", "__jtype", "__pause", 
                     "Function", "Continuation", "WeakRef", "FinalizationRegistry", "Packages", "java",
                     "javax", "org", "com", "net", "edu", "JavaAdapter", "JavaImporter", "XML", "XMLList",
                     "Namespace", "QName", "gc", "uneval", "Iterator", "StopIteration", "InternalError",
-                    "ConsString"}
+                    "ConsString", "CallSite", "Script", "JavaException", "AggregateError"}
 
 
 # Syntax capabilities. Each snippet is its own two-mode harness case: a crash or a mode
