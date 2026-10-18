@@ -272,6 +272,29 @@ def _show_diff(label: str, x: str, y: str, modes: tuple[str, ...], ctx: int = 60
     print(f"  {modes[1]:12} …{y[lo:i]}▶{y[i:i + ctx]}…")
 
 
+# ----------------------------------------------------------------------------- probe
+def cmd_probe(args: argparse.Namespace) -> int:
+    """Refreshes the Rhino capability table the API generators draw from."""
+    from .gen import environment
+    from .harness.client import HarnessClient
+
+    with HarnessClient(quiet=True) as client:
+        table = environment.run_probe(client, language_version=args.language_version)
+    environment.save(table)
+    protos = environment.method_table(table)
+    statics = environment.static_table(table)
+    print(f"rhino {table.get('rhino')}, language version {args.language_version}")
+    print(f"{len(table['globals'])} globals, {len(protos)} prototypes with {sum(len(v) for v in protos.values())} methods, "
+          f"{sum(len(v) for v in statics.values())} static functions on {len(statics)} owners")
+    unsupported = sorted(k for k, v in table["syntax"].items() if not v["supported"])
+    print("syntax unsupported: " + ", ".join(unsupported))
+    for k, v in sorted(table["syntax"].items()):
+        if v["verdict"] not in ("equal",) or "crash" in (v.get("interpreted"), v.get("compiled")):
+            print(f"  !! {k:22} interpreted={v.get('interpreted')} compiled={v.get('compiled')}  {v['detail'][:120]}")
+    print(f"written to {environment.CACHE}")
+    return 0
+
+
 # ----------------------------------------------------------------------------- listing
 def cmd_list(args: argparse.Namespace) -> int:
     load_all()
@@ -351,6 +374,10 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--strict", action="store_true")
     _add_run_options(d)
     d.set_defaults(fn=cmd_diff)
+
+    pr = sub.add_parser("probe", help="probe Rhino's builtins/syntax and refresh the environment model")
+    pr.add_argument("--language-version", type=int, default=250)
+    pr.set_defaults(fn=cmd_probe)
 
     ls = sub.add_parser("list", help="list generators and templates")
     ls.add_argument("--toggle", action="append")

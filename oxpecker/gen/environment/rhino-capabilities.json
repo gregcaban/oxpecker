@@ -1,0 +1,1707 @@
+{
+ "constructors": {
+  "AggregateError": {
+   "isCtor": true,
+   "length": 2
+  },
+  "Array": {
+   "isCtor": true,
+   "length": 1
+  },
+  "ArrayBuffer": {
+   "isCtor": true,
+   "length": 1
+  },
+  "BigInt": {
+   "isCtor": true,
+   "length": 1
+  },
+  "BigInt64Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "BigUint64Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Boolean": {
+   "isCtor": true,
+   "length": 1
+  },
+  "CallSite": {
+   "isCtor": true,
+   "length": 0
+  },
+  "Continuation": {
+   "isCtor": true,
+   "length": 0
+  },
+  "DataView": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Date": {
+   "isCtor": true,
+   "length": 7
+  },
+  "Error": {
+   "isCtor": true,
+   "length": 1
+  },
+  "EvalError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Float16Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Float32Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Float64Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Function": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Int16Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Int32Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Int8Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "InternalError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Iterator": {
+   "isCtor": true,
+   "length": 2
+  },
+  "JavaException": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Map": {
+   "isCtor": true,
+   "length": 0
+  },
+  "Number": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Object": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Promise": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Proxy": {
+   "isCtor": true,
+   "length": 2
+  },
+  "RangeError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "ReferenceError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "RegExp": {
+   "isCtor": true,
+   "length": 2
+  },
+  "Script": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Set": {
+   "isCtor": true,
+   "length": 0
+  },
+  "String": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Symbol": {
+   "isCtor": true,
+   "length": 0
+  },
+  "SyntaxError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "TypeError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "URIError": {
+   "isCtor": true,
+   "length": 1
+  },
+  "Uint16Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Uint32Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Uint8Array": {
+   "isCtor": true,
+   "length": 3
+  },
+  "Uint8ClampedArray": {
+   "isCtor": true,
+   "length": 3
+  },
+  "WeakMap": {
+   "isCtor": true,
+   "length": 0
+  },
+  "WeakSet": {
+   "isCtor": true,
+   "length": 0
+  },
+  "decodeURI": {
+   "isCtor": false,
+   "length": 1
+  },
+  "decodeURIComponent": {
+   "isCtor": false,
+   "length": 1
+  },
+  "encodeURI": {
+   "isCtor": false,
+   "length": 1
+  },
+  "encodeURIComponent": {
+   "isCtor": false,
+   "length": 1
+  },
+  "escape": {
+   "isCtor": false,
+   "length": 1
+  },
+  "eval": {
+   "isCtor": false,
+   "length": 1
+  },
+  "isFinite": {
+   "isCtor": false,
+   "length": 1
+  },
+  "isNaN": {
+   "isCtor": false,
+   "length": 1
+  },
+  "isXMLName": {
+   "isCtor": false,
+   "length": 1
+  },
+  "parseFloat": {
+   "isCtor": false,
+   "length": 1
+  },
+  "parseInt": {
+   "isCtor": false,
+   "length": 2
+  },
+  "unescape": {
+   "isCtor": false,
+   "length": 1
+  },
+  "uneval": {
+   "isCtor": false,
+   "length": 1
+  }
+ },
+ "globals": {
+  "AggregateError": "function",
+  "Array": "function",
+  "ArrayBuffer": "function",
+  "ArrayIterator": "object",
+  "BigInt": "function",
+  "BigInt64Array": "function",
+  "BigUint64Array": "function",
+  "Boolean": "function",
+  "CallSite": "function",
+  "Continuation": "function",
+  "DataView": "function",
+  "Date": "function",
+  "Error": "function",
+  "EvalError": "function",
+  "Float16Array": "function",
+  "Float32Array": "function",
+  "Float64Array": "function",
+  "Function": "function",
+  "Infinity": "number",
+  "Int16Array": "function",
+  "Int32Array": "function",
+  "Int8Array": "function",
+  "InternalError": "function",
+  "Iterator": "function",
+  "JSON": "object",
+  "JavaException": "function",
+  "JavaIterableIterator": "object",
+  "JavaMapIterator": "object",
+  "Map": "function",
+  "Map Iterator": "object",
+  "Math": "object",
+  "NaN": "number",
+  "Number": "function",
+  "Object": "function",
+  "Promise": "function",
+  "Proxy": "function",
+  "RangeError": "function",
+  "ReferenceError": "function",
+  "Reflect": "object",
+  "RegExp": "function",
+  "RegExpStringIterator": "object",
+  "Script": "function",
+  "Set": "function",
+  "Set Iterator": "object",
+  "StopIteration": "object",
+  "String": "function",
+  "StringIterator": "object",
+  "Symbol": "function",
+  "Symbol(GeneratorPrototype)": "object",
+  "SyntaxError": "function",
+  "TypeError": "function",
+  "URIError": "function",
+  "Uint16Array": "function",
+  "Uint32Array": "function",
+  "Uint8Array": "function",
+  "Uint8ClampedArray": "function",
+  "WeakMap": "function",
+  "WeakSet": "function",
+  "decodeURI": "function",
+  "decodeURIComponent": "function",
+  "encodeURI": "function",
+  "encodeURIComponent": "function",
+  "escape": "function",
+  "eval": "function",
+  "global": "object",
+  "globalThis": "object",
+  "isFinite": "function",
+  "isNaN": "function",
+  "isXMLName": "function",
+  "parseFloat": "function",
+  "parseInt": "function",
+  "undefined": "undefined",
+  "unescape": "function",
+  "uneval": "function"
+ },
+ "languageVersion": 250,
+ "protos": {
+  "AggregateError": [
+   "message=",
+   "name="
+  ],
+  "Array": [
+   "at/1",
+   "concat/1",
+   "copyWithin/2",
+   "entries/0",
+   "every/1",
+   "fill/1",
+   "filter/1",
+   "find/1",
+   "findIndex/1",
+   "findLast/1",
+   "findLastIndex/1",
+   "flat/0",
+   "flatMap/1",
+   "forEach/1",
+   "includes/1",
+   "indexOf/1",
+   "join/1",
+   "keys/0",
+   "lastIndexOf/1",
+   "length=",
+   "map/1",
+   "pop/0",
+   "push/1",
+   "reduce/1",
+   "reduceRight/1",
+   "reverse/0",
+   "shift/0",
+   "slice/2",
+   "some/1",
+   "sort/1",
+   "splice/2",
+   "toLocaleString/0",
+   "toReversed/0",
+   "toSorted/1",
+   "toSource/0",
+   "toSpliced/2",
+   "toString/0",
+   "unshift/1",
+   "values/0",
+   "with/2",
+   "Symbol(Symbol.iterator)",
+   "Symbol(Symbol.unscopables)"
+  ],
+  "ArrayBuffer": [
+   "byteLength:acc",
+   "detached:acc",
+   "maxByteLength:acc",
+   "resizable:acc",
+   "resize/1",
+   "slice/2",
+   "transfer/0",
+   "transferToFixedLength/0",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "BigInt": [
+   "toLocaleString/0",
+   "toSource/0",
+   "toString/0",
+   "valueOf/0",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "BigInt64Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "BigUint64Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Boolean": [
+   "toSource/0",
+   "toString/0",
+   "valueOf/0"
+  ],
+  "CallSite": [
+   "getColumnNumber/0",
+   "getEvalOrigin/0",
+   "getFileName/0",
+   "getFunction/0",
+   "getFunctionName/0",
+   "getLineNumber/0",
+   "getMethodName/0",
+   "getThis/0",
+   "getTypeName/0",
+   "isConstructor/0",
+   "isEval/0",
+   "isNative/0",
+   "isToplevel/0",
+   "toString/0"
+  ],
+  "Continuation": [],
+  "DataView": [
+   "buffer:acc",
+   "byteLength:acc",
+   "byteOffset:acc",
+   "getBigInt64/1",
+   "getBigUint64/1",
+   "getFloat16/1",
+   "getFloat32/1",
+   "getFloat64/1",
+   "getInt16/1",
+   "getInt32/1",
+   "getInt8/1",
+   "getUint16/1",
+   "getUint32/1",
+   "getUint8/1",
+   "setBigInt64/2",
+   "setBigUint64/2",
+   "setFloat16/2",
+   "setFloat32/2",
+   "setFloat64/2",
+   "setInt16/2",
+   "setInt32/2",
+   "setInt8/2",
+   "setUint16/2",
+   "setUint32/2",
+   "setUint8/2",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "Date": [
+   "getDate/0",
+   "getDay/0",
+   "getFullYear/0",
+   "getHours/0",
+   "getMilliseconds/0",
+   "getMinutes/0",
+   "getMonth/0",
+   "getSeconds/0",
+   "getTime/0",
+   "getTimezoneOffset/0",
+   "getUTCDate/0",
+   "getUTCDay/0",
+   "getUTCFullYear/0",
+   "getUTCHours/0",
+   "getUTCMilliseconds/0",
+   "getUTCMinutes/0",
+   "getUTCMonth/0",
+   "getUTCSeconds/0",
+   "getYear/0",
+   "setDate/1",
+   "setFullYear/3",
+   "setHours/4",
+   "setMilliseconds/1",
+   "setMinutes/3",
+   "setMonth/2",
+   "setSeconds/2",
+   "setTime/1",
+   "setUTCDate/1",
+   "setUTCFullYear/3",
+   "setUTCHours/4",
+   "setUTCMilliseconds/1",
+   "setUTCMinutes/3",
+   "setUTCMonth/2",
+   "setUTCSeconds/2",
+   "setYear/1",
+   "toDateString/0",
+   "toGMTString/0",
+   "toISOString/0",
+   "toJSON/1",
+   "toLocaleDateString/0",
+   "toLocaleString/0",
+   "toLocaleTimeString/0",
+   "toSource/0",
+   "toString/0",
+   "toTimeString/0",
+   "toUTCString/0",
+   "valueOf/0",
+   "Symbol(Symbol.toPrimitive)"
+  ],
+  "Error": [
+   "fileName=",
+   "lineNumber=",
+   "message=",
+   "name=",
+   "toSource/0",
+   "toString/0"
+  ],
+  "EvalError": [
+   "message=",
+   "name="
+  ],
+  "Float16Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Float32Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Float64Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Int16Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Int32Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Int8Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "InternalError": [
+   "message=",
+   "name="
+  ],
+  "Iterator": [
+   "__iterator__/1",
+   "next/0"
+  ],
+  "JavaException": [
+   "message=",
+   "name="
+  ],
+  "Map": [
+   "clear/0",
+   "delete/1",
+   "entries/0",
+   "forEach/1",
+   "get/1",
+   "has/1",
+   "keys/0",
+   "set/2",
+   "size:acc",
+   "values/0",
+   "Symbol(Symbol.iterator)",
+   "Symbol([Symbol.getSize])",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "Number": [
+   "toExponential/1",
+   "toFixed/1",
+   "toLocaleString/0",
+   "toPrecision/1",
+   "toSource/0",
+   "toString/1",
+   "valueOf/0"
+  ],
+  "Object": [
+   "__defineGetter__/2",
+   "__defineSetter__/2",
+   "__lookupGetter__/1",
+   "__lookupSetter__/1",
+   "__proto__:acc",
+   "hasOwnProperty/1",
+   "isPrototypeOf/1",
+   "propertyIsEnumerable/1",
+   "toLocaleString/0",
+   "toSource/0",
+   "toString/0",
+   "valueOf/0"
+  ],
+  "Promise": [
+   "catch/1",
+   "finally/1",
+   "then/2",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "RangeError": [
+   "message=",
+   "name="
+  ],
+  "ReferenceError": [
+   "message=",
+   "name="
+  ],
+  "RegExp": [
+   "compile/2",
+   "dotAll:acc",
+   "exec/1",
+   "flags:acc",
+   "global:acc",
+   "ignoreCase:acc",
+   "lastIndex=",
+   "multiline:acc",
+   "prefix/1",
+   "source:acc",
+   "sticky:acc",
+   "test/1",
+   "toSource/0",
+   "toString/0",
+   "unicode:acc",
+   "Symbol(Symbol.match)",
+   "Symbol(Symbol.matchAll)",
+   "Symbol(Symbol.search)",
+   "Symbol(Symbol.replace)",
+   "Symbol(Symbol.split)"
+  ],
+  "Set": [
+   "add/1",
+   "clear/0",
+   "delete/1",
+   "difference/1",
+   "entries/0",
+   "forEach/1",
+   "has/1",
+   "intersection/1",
+   "isDisjointFrom/1",
+   "isSubsetOf/1",
+   "isSupersetOf/1",
+   "keys/0",
+   "size:acc",
+   "symmetricDifference/1",
+   "union/1",
+   "values/0",
+   "Symbol(Symbol.iterator)",
+   "Symbol([Symbol.getSize])",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "String": [
+   "anchor/0",
+   "at/1",
+   "big/0",
+   "blink/0",
+   "bold/0",
+   "charAt/1",
+   "charCodeAt/1",
+   "codePointAt/1",
+   "concat/1",
+   "endsWith/1",
+   "equals/1",
+   "equalsIgnoreCase/1",
+   "fixed/0",
+   "fontcolor/0",
+   "fontsize/0",
+   "includes/1",
+   "indexOf/1",
+   "isWellFormed/0",
+   "italics/0",
+   "lastIndexOf/1",
+   "length=",
+   "link/0",
+   "localeCompare/1",
+   "match/1",
+   "matchAll/1",
+   "normalize/0",
+   "padEnd/1",
+   "padStart/1",
+   "repeat/1",
+   "replace/2",
+   "replaceAll/2",
+   "search/1",
+   "slice/2",
+   "small/0",
+   "split/2",
+   "startsWith/1",
+   "strike/0",
+   "sub/0",
+   "substr/2",
+   "substring/2",
+   "sup/0",
+   "toLocaleLowerCase/0",
+   "toLocaleUpperCase/0",
+   "toLowerCase/0",
+   "toSource/0",
+   "toString/0",
+   "toUpperCase/0",
+   "toWellFormed/0",
+   "trim/0",
+   "trimEnd/0",
+   "trimLeft/0",
+   "trimRight/0",
+   "trimStart/0",
+   "valueOf/0",
+   "Symbol(Symbol.iterator)"
+  ],
+  "Symbol": [
+   "description:acc",
+   "toString/0",
+   "valueOf/0",
+   "Symbol(Symbol.toPrimitive)",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "SyntaxError": [
+   "message=",
+   "name="
+  ],
+  "TypeError": [
+   "message=",
+   "name="
+  ],
+  "TypedArray": [
+   "at/1",
+   "buffer:acc",
+   "byteLength:acc",
+   "byteOffset:acc",
+   "copyWithin/2",
+   "entries/0",
+   "every/1",
+   "fill/1",
+   "filter/1",
+   "find/1",
+   "findIndex/1",
+   "findLast/1",
+   "findLastIndex/1",
+   "forEach/1",
+   "includes/1",
+   "indexOf/1",
+   "join/1",
+   "keys/0",
+   "lastIndexOf/1",
+   "length:acc",
+   "map/1",
+   "reduce/1",
+   "reduceRight/1",
+   "reverse/0",
+   "set/1",
+   "slice/2",
+   "some/1",
+   "sort/1",
+   "subarray/2",
+   "toLocaleString/0",
+   "toReversed/0",
+   "toSorted/1",
+   "toString/0",
+   "values/0",
+   "with/2"
+  ],
+  "URIError": [
+   "message=",
+   "name="
+  ],
+  "Uint16Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Uint32Array": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "Uint8Array": [
+   "BYTES_PER_ELEMENT=",
+   "setFromBase64/1",
+   "setFromHex/1",
+   "toBase64/0",
+   "toHex/0"
+  ],
+  "Uint8ClampedArray": [
+   "BYTES_PER_ELEMENT="
+  ],
+  "WeakMap": [
+   "delete/1",
+   "get/1",
+   "has/1",
+   "set/2",
+   "Symbol(Symbol.toStringTag)"
+  ],
+  "WeakSet": [
+   "add/1",
+   "delete/1",
+   "has/1",
+   "Symbol(Symbol.toStringTag)"
+  ]
+ },
+ "rhino": "Rhino Snapshot",
+ "statics": {
+  "AggregateError": [
+   "arity="
+  ],
+  "Array": [
+   "arity=",
+   "concat/1",
+   "every/1",
+   "filter/1",
+   "find/1",
+   "findIndex/1",
+   "findLast/1",
+   "findLastIndex/1",
+   "forEach/1",
+   "from/1",
+   "indexOf/1",
+   "isArray/1",
+   "join/1",
+   "lastIndexOf/1",
+   "map/1",
+   "of/0",
+   "pop/0",
+   "push/1",
+   "reduce/1",
+   "reduceRight/1",
+   "reverse/0",
+   "shift/0",
+   "slice/2",
+   "some/1",
+   "sort/1",
+   "splice/2",
+   "unshift/1"
+  ],
+  "ArrayBuffer": [
+   "arity=",
+   "isView/1"
+  ],
+  "ArrayIterator": [
+   "next/0"
+  ],
+  "BigInt": [
+   "arity=",
+   "asIntN/2",
+   "asUintN/2"
+  ],
+  "BigInt64Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "BigUint64Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Boolean": [
+   "arity="
+  ],
+  "CallSite": [
+   "arity="
+  ],
+  "Continuation": [
+   "arity="
+  ],
+  "DataView": [
+   "arity="
+  ],
+  "Date": [
+   "UTC/7",
+   "arity=",
+   "now/0",
+   "parse/1"
+  ],
+  "Error": [
+   "arity=",
+   "captureStackTrace/0",
+   "isError/1",
+   "prepareStackTrace=",
+   "stackTraceLimit="
+  ],
+  "EvalError": [
+   "arity="
+  ],
+  "Float16Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Float32Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Float64Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Function": [
+   "arity="
+  ],
+  "Int16Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Int32Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Int8Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "InternalError": [
+   "arity="
+  ],
+  "Iterator": [
+   "arity="
+  ],
+  "JSON": [
+   "parse/2",
+   "stringify/3",
+   "toSource="
+  ],
+  "JavaException": [
+   "arity="
+  ],
+  "JavaIterableIterator": [
+   "next/0"
+  ],
+  "JavaMapIterator": [
+   "next/0"
+  ],
+  "Map": [
+   "arity=",
+   "groupBy/2"
+  ],
+  "Map Iterator": [
+   "next/0"
+  ],
+  "Math": [
+   "E=",
+   "LN10=",
+   "LN2=",
+   "LOG10E=",
+   "LOG2E=",
+   "PI=",
+   "SQRT1_2=",
+   "SQRT2=",
+   "abs/1",
+   "acos/1",
+   "acosh/1",
+   "asin/1",
+   "asinh/1",
+   "atan/1",
+   "atan2/2",
+   "atanh/1",
+   "cbrt/1",
+   "ceil/1",
+   "clz32/1",
+   "cos/1",
+   "cosh/1",
+   "exp/1",
+   "expm1/1",
+   "f16round/1",
+   "floor/1",
+   "fround/1",
+   "hypot/2",
+   "imul/2",
+   "log/1",
+   "log10/1",
+   "log1p/1",
+   "log2/1",
+   "max/2",
+   "min/2",
+   "pow/2",
+   "random/0",
+   "round/1",
+   "sign/1",
+   "sin/1",
+   "sinh/1",
+   "sqrt/1",
+   "tan/1",
+   "tanh/1",
+   "toSource=",
+   "trunc/1"
+  ],
+  "Number": [
+   "EPSILON=",
+   "MAX_SAFE_INTEGER=",
+   "MAX_VALUE=",
+   "MIN_SAFE_INTEGER=",
+   "MIN_VALUE=",
+   "NEGATIVE_INFINITY=",
+   "NaN=",
+   "POSITIVE_INFINITY=",
+   "arity=",
+   "isFinite/1",
+   "isInteger/1",
+   "isNaN/1",
+   "isSafeInteger/1",
+   "parseFloat/1",
+   "parseInt/2"
+  ],
+  "Object": [
+   "arity=",
+   "assign/2",
+   "create/2",
+   "defineProperties/2",
+   "defineProperty/3",
+   "entries/1",
+   "freeze/1",
+   "fromEntries/1",
+   "getOwnPropertyDescriptor/2",
+   "getOwnPropertyDescriptors/1",
+   "getOwnPropertyNames/1",
+   "getOwnPropertySymbols/1",
+   "getPrototypeOf/1",
+   "groupBy/2",
+   "hasOwn/1",
+   "is/2",
+   "isExtensible/1",
+   "isFrozen/1",
+   "isSealed/1",
+   "keys/1",
+   "preventExtensions/1",
+   "seal/1",
+   "setPrototypeOf/2",
+   "values/1"
+  ],
+  "Promise": [
+   "all/1",
+   "allSettled/1",
+   "any/1",
+   "arity=",
+   "race/1",
+   "reject/1",
+   "resolve/1",
+   "try/1",
+   "withResolvers/0"
+  ],
+  "Proxy": [
+   "arity=",
+   "revocable/2"
+  ],
+  "RangeError": [
+   "arity="
+  ],
+  "ReferenceError": [
+   "arity="
+  ],
+  "Reflect": [
+   "apply/3",
+   "construct/2",
+   "defineProperty/3",
+   "deleteProperty/2",
+   "get/2",
+   "getOwnPropertyDescriptor/2",
+   "getPrototypeOf/1",
+   "has/2",
+   "isExtensible/1",
+   "ownKeys/1",
+   "preventExtensions/1",
+   "set/3",
+   "setPrototypeOf/2"
+  ],
+  "RegExp": [
+   "$&:acc",
+   "$':acc",
+   "$*:acc",
+   "$+:acc",
+   "$1:acc",
+   "$2:acc",
+   "$3:acc",
+   "$4:acc",
+   "$5:acc",
+   "$6:acc",
+   "$7:acc",
+   "$8:acc",
+   "$9:acc",
+   "$_:acc",
+   "$`:acc",
+   "arity=",
+   "input:acc",
+   "lastMatch:acc",
+   "lastParen:acc",
+   "leftContext:acc",
+   "multiline:acc",
+   "rightContext:acc"
+  ],
+  "RegExpStringIterator": [
+   "next/0"
+  ],
+  "Script": [
+   "arity="
+  ],
+  "Set": [
+   "arity="
+  ],
+  "Set Iterator": [
+   "next/0"
+  ],
+  "StopIteration": [],
+  "String": [
+   "arity=",
+   "charAt/1",
+   "charCodeAt/1",
+   "concat/2",
+   "equalsIgnoreCase/2",
+   "fromCharCode/1",
+   "fromCodePoint/1",
+   "indexOf/2",
+   "lastIndexOf/2",
+   "localeCompare/2",
+   "match/2",
+   "raw/1",
+   "replace/2",
+   "replaceAll/2",
+   "search/2",
+   "slice/3",
+   "split/3",
+   "substr/3",
+   "substring/3",
+   "toLocaleLowerCase/1",
+   "toLowerCase/1",
+   "toUpperCase/1"
+  ],
+  "StringIterator": [
+   "next/0"
+  ],
+  "Symbol": [
+   "arity=",
+   "for/1",
+   "hasInstance=",
+   "isConcatSpreadable=",
+   "isRegExp=",
+   "iterator=",
+   "keyFor/1",
+   "match=",
+   "matchAll=",
+   "replace=",
+   "search=",
+   "species=",
+   "split=",
+   "toPrimitive=",
+   "toStringTag=",
+   "unscopables="
+  ],
+  "Symbol(GeneratorPrototype)": [
+   "next/1",
+   "return/1",
+   "throw/1"
+  ],
+  "SyntaxError": [
+   "arity="
+  ],
+  "TypeError": [
+   "arity="
+  ],
+  "URIError": [
+   "arity="
+  ],
+  "Uint16Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Uint32Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "Uint8Array": [
+   "BYTES_PER_ELEMENT=",
+   "arity=",
+   "fromBase64/1",
+   "fromHex/1"
+  ],
+  "Uint8ClampedArray": [
+   "BYTES_PER_ELEMENT=",
+   "arity="
+  ],
+  "WeakMap": [
+   "arity="
+  ],
+  "WeakSet": [
+   "arity="
+  ],
+  "decodeURI": [
+   "arity="
+  ],
+  "decodeURIComponent": [
+   "arity="
+  ],
+  "encodeURI": [
+   "arity="
+  ],
+  "encodeURIComponent": [
+   "arity="
+  ],
+  "escape": [
+   "arity="
+  ],
+  "eval": [
+   "arity="
+  ],
+  "global": [
+   "AggregateError/2",
+   "Array/1",
+   "ArrayBuffer/1",
+   "ArrayIterator=",
+   "BigInt/1",
+   "BigInt64Array/3",
+   "BigUint64Array/3",
+   "Boolean/1",
+   "CallSite/0",
+   "Continuation/0",
+   "DataView/1",
+   "Date/7",
+   "Error/1",
+   "EvalError/1",
+   "Float16Array/3",
+   "Float32Array/3",
+   "Float64Array/3",
+   "Function/1",
+   "Infinity=",
+   "Int16Array/3",
+   "Int32Array/3",
+   "Int8Array/3",
+   "InternalError/1",
+   "Iterator/2",
+   "J=",
+   "JSON=",
+   "JavaException/1",
+   "JavaIterableIterator=",
+   "JavaMapIterator=",
+   "Map/0",
+   "Map Iterator=",
+   "Math=",
+   "NaN=",
+   "Number/1",
+   "Object/1",
+   "Promise/1",
+   "Proxy/2",
+   "RangeError/1",
+   "ReferenceError/1",
+   "Reflect=",
+   "RegExp/2",
+   "RegExpStringIterator=",
+   "Script/1",
+   "Set/0",
+   "Set Iterator=",
+   "StopIteration=",
+   "String/1",
+   "StringIterator=",
+   "Symbol/0",
+   "Symbol(GeneratorPrototype)=",
+   "SyntaxError/1",
+   "TypeError/1",
+   "URIError/1",
+   "Uint16Array/3",
+   "Uint32Array/3",
+   "Uint8Array/3",
+   "Uint8ClampedArray/3",
+   "WeakMap/0",
+   "WeakSet/0",
+   "__isProxy/1",
+   "__jtype/1",
+   "__pause/1",
+   "__probe/1",
+   "decodeURI/1",
+   "decodeURIComponent/1",
+   "encodeURI/1",
+   "encodeURIComponent/1",
+   "escape/1",
+   "eval/1",
+   "global=",
+   "globalThis=",
+   "isFinite/1",
+   "isNaN/1",
+   "isXMLName/1",
+   "parseFloat/1",
+   "parseInt/2",
+   "print/1",
+   "undefined=",
+   "unescape/1",
+   "uneval/1"
+  ],
+  "globalThis": [
+   "AggregateError/2",
+   "Array/1",
+   "ArrayBuffer/1",
+   "ArrayIterator=",
+   "BigInt/1",
+   "BigInt64Array/3",
+   "BigUint64Array/3",
+   "Boolean/1",
+   "CallSite/0",
+   "Continuation/0",
+   "DataView/1",
+   "Date/7",
+   "Error/1",
+   "EvalError/1",
+   "Float16Array/3",
+   "Float32Array/3",
+   "Float64Array/3",
+   "Function/1",
+   "Infinity=",
+   "Int16Array/3",
+   "Int32Array/3",
+   "Int8Array/3",
+   "InternalError/1",
+   "Iterator/2",
+   "J=",
+   "JSON=",
+   "JavaException/1",
+   "JavaIterableIterator=",
+   "JavaMapIterator=",
+   "Map/0",
+   "Map Iterator=",
+   "Math=",
+   "NaN=",
+   "Number/1",
+   "Object/1",
+   "Promise/1",
+   "Proxy/2",
+   "RangeError/1",
+   "ReferenceError/1",
+   "Reflect=",
+   "RegExp/2",
+   "RegExpStringIterator=",
+   "Script/1",
+   "Set/0",
+   "Set Iterator=",
+   "StopIteration=",
+   "String/1",
+   "StringIterator=",
+   "Symbol/0",
+   "Symbol(GeneratorPrototype)=",
+   "SyntaxError/1",
+   "TypeError/1",
+   "URIError/1",
+   "Uint16Array/3",
+   "Uint32Array/3",
+   "Uint8Array/3",
+   "Uint8ClampedArray/3",
+   "WeakMap/0",
+   "WeakSet/0",
+   "__isProxy/1",
+   "__jtype/1",
+   "__pause/1",
+   "__probe/1",
+   "decodeURI/1",
+   "decodeURIComponent/1",
+   "encodeURI/1",
+   "encodeURIComponent/1",
+   "escape/1",
+   "eval/1",
+   "global=",
+   "globalThis=",
+   "isFinite/1",
+   "isNaN/1",
+   "isXMLName/1",
+   "parseFloat/1",
+   "parseInt/2",
+   "print/1",
+   "undefined=",
+   "unescape/1",
+   "uneval/1"
+  ],
+  "isFinite": [
+   "arity="
+  ],
+  "isNaN": [
+   "arity="
+  ],
+  "isXMLName": [
+   "arity="
+  ],
+  "parseFloat": [
+   "arity="
+  ],
+  "parseInt": [
+   "arity="
+  ],
+  "unescape": [
+   "arity="
+  ],
+  "uneval": [
+   "arity="
+  ]
+ },
+ "syntax": {
+  "arrow": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "arrow-destructure": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "async": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "await": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "bigint": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "binary-literal": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "class": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "comma-in-for": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "computed-key": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "const": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "debugger": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "default-params": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "destructuring": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "exponent": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "for-of": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "generator": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "generator-method": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "getter": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "getter-computed": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "getter-numeric": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "hashbang": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "import-call": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "import-meta": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "label-block": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "label-continue": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "legacy-octal": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "let": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "logical-assign": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "new-target": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "nullish": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "numeric-separator": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "object-spread": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "octal-literal": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "optional-chaining": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "private-field": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "regexp-dotall": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "regexp-lookbehind": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "regexp-named-groups": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "regexp-unicode": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "rest-params": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "shorthand-method": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "spread-array": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "spread-call": {
+   "compiled": "crash",
+   "detail": "HARD: interpreted crashed: java.lang.RuntimeException: 190; compiled crashed: java.lang.RuntimeException: Unexpected node type 190",
+   "interpreted": "crash",
+   "supported": false,
+   "verdict": "hard"
+  },
+  "static-block": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "super-in-object": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "tagged-template": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "template": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "top-level-await": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
+  "trailing-comma-call": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "unicode-escape-id": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  },
+  "with": {
+   "compiled": "ok",
+   "detail": "",
+   "interpreted": "ok",
+   "supported": true,
+   "verdict": "equal"
+  }
+ }
+}

@@ -93,10 +93,12 @@ def gen_destructuring(b: ProgramBuilder):
 
 @generator("spread", family="toggled", weight=3, toggle="spread")
 def gen_spread(b: ProgramBuilder):
-    """Spread in array literals, calls and object literals."""
+    """Spread in array and object literals (call spread is excluded: it crashes Rhino)."""
     a = b.pick_or_make(T.ARRAY)
-    form = b.choice([f"[0, ...{a}, 1]", f"Math.max(...{a})", f"[...{b.expr(T.STRING, literal)}]",
-                     f"{{...{b.expr(T.OBJECT, literal)}, z: 1}}", f"[...{a}, ...{a}].length", f"(function () {{ return arguments.length; }})(...{a})"])
+    # Spread in a *call* (`f(...a)`) crashes Rhino b95f75d in both modes with a raw RuntimeException:
+    # see tests/regressions/spread-in-call-crashes-both-modes.js. Only array/object spread here.
+    form = b.choice([f"[0, ...{a}, 1]", f"[...{b.expr(T.STRING, literal)}]",
+                     f"{{...{b.expr(T.OBJECT, literal)}, z: 1}}", f"[...{a}, ...{a}].length", f"[...{a}].indexOf(1)"])
     tb = b.try_block()
     with tb.body():
         b.fresh(T.UNKNOWN, form)
