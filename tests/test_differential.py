@@ -23,10 +23,10 @@ from oxpecker.gen.strategies import Program, programs
 from oxpecker.harness.compare import HARD, JAVA_TYPES, SOFT, compare_run
 
 FINDINGS = Path(__file__).parent / "findings"
-# Signatures of findings already captured in tests/regressions: logged, not failed, so a long run
-# keeps looking for new divergences instead of stopping at the first known one.
-KNOWN = {ln.split("#", 1)[0].strip() for ln in (Path(__file__).parent / "known_signatures.txt").read_text().splitlines()
-         if ln.split("#", 1)[0].strip()} if (Path(__file__).parent / "known_signatures.txt").exists() else set()
+# Signatures of findings already captured in tests/regressions (computed by the `known` fixture in
+# conftest.py, plus tests/known_signatures.txt): logged, not failed, so a long run keeps looking
+# for new divergences instead of stopping at the first known one.
+KNOWN: set[str] = set()
 EXAMPLES = int(os.environ.get("OXPECKER_EXAMPLES", "200"))
 TOGGLES = frozenset(t for t in os.environ.get("OXPECKER_TOGGLES", "").split(",") if t)
 OPTS = GenOptions(toggles=TOGGLES)
@@ -78,7 +78,8 @@ def record(prog: Program, run, verdict, *, fail: bool) -> None:
           suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large, HealthCheck.filter_too_much],
           print_blob=True)
 @given(programs(OPTS))
-def test_interpreted_equals_compiled(harness, prog: Program):
+def test_interpreted_equals_compiled(harness, known, prog: Program):
+    KNOWN.update(known)
     run = harness.run(prog.source, seed=1)
     verdict = compare_run(run)
     note(prog.source)

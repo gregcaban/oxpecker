@@ -1,26 +1,220 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --background: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f1f2f5;
+  --border: #e3e5e9;
+  --foreground: #16181d;
+  --muted: #666b76;
+  --accent: #3b5bfd;
+  --accent-soft: #e8ecff;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --ok: #1a7f4a;
+  --warn: #a35d00;
+  --bad: #c22d3a;
+  --info: #3b5bfd;
+  --neutral: #666b76;
+
+  --code-bg: #ffffff;
+  --code-border: #e3e5e9;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0d0f13;
+    --surface: #15171d;
+    --surface-2: #1b1e25;
+    --border: #2a2d36;
+    --foreground: #e8e9ec;
+    --muted: #9298a4;
+    --accent: #7d93ff;
+    --accent-soft: #1d2340;
+
+    --ok: #3fcf80;
+    --warn: #e0a941;
+    --bad: #ff6b6b;
+    --info: #7d93ff;
+    --neutral: #9298a4;
+
+    --code-bg: #12141a;
+    --code-border: #2a2d36;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --color-neutral: var(--neutral);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+/* ---------- Layout primitives ---------- */
+
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.surface-2 {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* ---------- Tables ---------- */
+
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+table.data-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+table.data-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+table.data-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badge-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.badge-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.badge-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
+.badge-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+.badge-neutral { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
+
+/* ---------- Code block ---------- */
+
+.code-block {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 0.6rem 0;
+  overflow-x: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.code-block code {
+  display: block;
+  min-width: max-content;
+}
+
+.code-line {
+  display: flex;
+  position: relative;
+  padding: 0 0.75rem 0 0;
+  border-left: 3px solid transparent;
+}
+
+.code-line-marked {
+  border-left-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+}
+
+.line-no {
+  flex: none;
+  width: 2.75rem;
+  text-align: right;
+  padding-right: 0.75rem;
+  color: var(--muted);
+  opacity: 0.6;
+  user-select: none;
+}
+
+.line-tint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.line-tint-on {
+  background: hsl(var(--gen-hue) 75% 55% / 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  .line-tint-on {
+    background: hsl(var(--gen-hue) 70% 60% / 0.22);
+  }
+}
+
+.line-content {
+  position: relative;
+  z-index: 1;
+  white-space: pre;
+}
+
+/* Shiki dual-theme: tokens carry both a light `color` and a `--shiki-dark` var. */
+@media (prefers-color-scheme: dark) {
+  .code-block span[style] {
+    color: var(--shiki-dark, inherit) !important;
+  }
+}
+
+/* ---------- Scrollbars (webkit) ---------- */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
 }
