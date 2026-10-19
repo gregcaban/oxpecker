@@ -39,3 +39,10 @@ each header.
 
 https://www.jacoco.org/. Used at runtime as a Java agent and analysis library (Maven
 dependencies), not redistributed.
+
+## README photograph — CC0
+
+`docs/oxpecker.jpg`: "Kruger Park, South Africa" by Joel Herzog, published on Unsplash and
+mirrored on Wikimedia Commons
+(https://commons.wikimedia.org/wiki/File:Kruger_Park,_South_Africa_(Unsplash_1xetOxStk_Y).jpg),
+released under CC0 1.0 (public domain dedication). Credited in the README as a courtesy.
