@@ -18,7 +18,6 @@ jit2_functions, jit_tricky_function, json_fuzzer. It does not modify any existin
 
 from __future__ import annotations
 
-from hypothesis import strategies as st
 
 from .builder import ProgramBuilder, Var
 from .generators.compiler import PERTURB, numeric_body
@@ -307,7 +306,7 @@ def tpl_json_fuzzer(b: ProgramBuilder):
     with b.define_function(1, param_types=[T.STRING]) as (mutate_fn, mparams):
         j = mparams[0]
         xorv = b.rand_int(1, 127)
-        frac = b.draw(st.floats(min_value=0.0, max_value=0.99, allow_nan=False, allow_infinity=False))
+        frac = b.rand_int(0, 99) / 100
         b.emit(f"if ({j}.length === 0) return {j};")
         idx = b.fresh(T.INT32, f"Math.floor({j}.length * {frac})")
         code = b.fresh(T.INT32, f"{j}.charCodeAt({idx}) ^ {xorv}")

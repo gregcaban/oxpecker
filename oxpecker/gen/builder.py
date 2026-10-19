@@ -3,7 +3,7 @@ inserts state probes, and records which generator produced which lines.
 
 Its method surface deliberately mirrors Fuzzilli's ProgramBuilder (fresh/pick/define_function/
 loops/try) so Fuzzilli's code generators port close to line-for-line, but it produces readable JS
-directly instead of an IR.  All randomness goes through Hypothesis `draw`, so shrinking works.
+directly instead of an IR.  All randomness goes through a `Rand` (Hypothesis draw, or a replayable choice sequence).
 
 Design modelled on Fuzzilli's Sources/Fuzzilli/Base/ProgramBuilder.swift (Google LLC, Apache-2.0;
 see THIRD_PARTY_NOTICES.md). No code is copied.
@@ -16,8 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from hypothesis import strategies as st
-
+from .rand import Rand
 from .types import PREFIX, T, compatible
 
 
@@ -62,9 +61,8 @@ class _Scope:
 
 
 class ProgramBuilder:
-    def __init__(self, draw: Callable[[st.SearchStrategy[Any]], Any], opts: GenOptions,
-                 pool: Sequence[Any] = ()):
-        self.draw = draw
+    def __init__(self, rand: Rand, opts: GenOptions, pool: Sequence[Any] = ()):
+        self.rand = rand
         self.opts = opts
         self.pool = list(pool)            # weighted list of enabled generators (see strategies)
         self.lines: list[Line] = []
@@ -79,16 +77,16 @@ class ProgramBuilder:
 
     # ---------------------------------------------------------------- randomness
     def rand_int(self, lo: int, hi: int) -> int:
-        return self.draw(st.integers(lo, hi))
+        return self.rand.rand_int(lo, hi)
 
     def rand_bool(self) -> bool:
-        return self.draw(st.booleans())
+        return self.rand.rand_int(0, 1) == 1
 
     def choice(self, seq: Sequence[Any]) -> Any:
-        return self.draw(st.sampled_from(list(seq)))
+        return self.rand.choice(seq)
 
     def maybe(self, p: float = 0.5) -> bool:
-        return self.draw(st.integers(0, 99)) < int(p * 100)
+        return self.rand.maybe(p)
 
     # ---------------------------------------------------------------- emission
     def emit(self, text: str, *, probe: bool = False) -> None:
@@ -165,7 +163,7 @@ class ProgramBuilder:
         cands = [v for v in vis if compatible(v.type, type)]
         if not cands:
             return None
-        return cands[self.draw(st.integers(0, 255)) % len(cands)]
+        return cands[self.rand.rand_int(0, 255) % len(cands)]
 
     def pick_or_make(self, type: T) -> Var:
         v = self.pick(type)
@@ -259,7 +257,7 @@ class ProgramBuilder:
         if n is None:
             n = self.rand_int(lo, hi)
         # One list draw so the shrinker can delete nested statements too.
-        gens = self.draw(st.lists(st.sampled_from(self.pool), min_size=0, max_size=n))
+        gens = self.rand.sample_list(self.pool, 0, n)
         for g in gens:
             self.run(g)
 

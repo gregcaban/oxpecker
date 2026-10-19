@@ -6,7 +6,7 @@ difference is a bug candidate, shrunk to a small reproducer. This document descr
 it exists in the repository; the original brief it grew from is `docs/brief-2026-10-18-original.md`.
 Where the two differ, this one wins.
 
-Status: 2026-10-19. Rhino pinned at `b95f75d` (master, `2.0.0-SNAPSHOT`); 30 confirmed findings
+Status: 2026-10-19 (with `oxpecker fuzz`). Rhino pinned at `b95f75d` (master, `2.0.0-SNAPSHOT`); 30 confirmed findings
 in `tests/regressions/`.
 
 ## 1. Goal and scope
@@ -258,7 +258,39 @@ is how the call-spread crash was found). The table is cached in `rhino-capabilit
 `api` generators draw from it, so a Rhino upgrade only needs a re-probe. Fuzzilli's
 `JavaScriptEnvironment`/TypeScript lib approach was not needed.
 
-### 6.6 Property tests (`tests/test_differential.py`)
+### 6.6 Randomness backends (`gen/rand.py`)
+
+The builder draws through a `Rand` interface with two implementations: `HypothesisRand` (a
+Hypothesis `draw`; the property tests get shrinking and the example database) and `ChoiceRand`
+(a recorded list of ints; replaying rebuilds the same program, and because every value is folded
+into the range the builder asks for at that point, *any* mutated list is a valid program).
+`mutate()` offers point changes, block delete/insert/duplicate, splice from another sequence,
+havoc and truncation — the same operator family as Fuzzilli's mutators and AFL's havoc stage,
+applied to generator choices instead of IR or bytes.
+
+### 6.7 Coverage-guided corpus loop (`oxpecker fuzz`, `fuzz.py`)
+
+```
+corpus ← corpus.jsonl (choice sequences) ; harness ← coverage.exec (frontier)   [resume]
+loop:
+  parent ← uniform(corpus) with prob 1-p_new, else fresh
+  choices ← mutate(parent.choices, others=sample(corpus))
+  program ← build_program(ChoiceRand(choices))
+  run both modes with coverage; verdict ← compare
+  if newProbes > 0: corpus.add(choices)               # it reached something new
+  if hard and signature unknown: shrink (choice-level ddmin, then statement/line-level source
+      ddmin under the *coarse* signature), record reproducer, mark signature known
+  every N runs: save coverage.exec
+```
+
+Parents are drawn uniformly, not by score, so a region that has been "spent" stops attracting
+mutations naturally; the frontier persists across runs. Shrinking uses the coarse signature (kind
+plus the *type* of the first difference) because values and lengths change while shrinking.
+Throughput is ~2–5 runs/s with the agent attached, dominated by shrinking when findings are
+frequent. The property test remains the better tool for a quick, reproducible, seed-driven run;
+the corpus loop is the long-running one (`scripts/nightly.sh` can call either).
+
+### 6.8 Property tests (`tests/test_differential.py`)
 
 ```
 test_interpreted_equals_compiled   default oracle; hard findings raise a per-signature
@@ -406,8 +438,9 @@ What each part of the design borrows from:
 
 ## 13. Open items
 
-- Coverage page in the UI; weight the novelty score toward `optimizer.*`/`Interpreter` probes;
-  a persistent corpus of high-novelty programs to seed later runs (Fuzzilli-style).
+- Coverage page in the UI; weight the novelty score toward `optimizer.*`/`Interpreter` probes.
+- Dedup across manifestations: the exact signature re-reports known bugs when they surface
+  through a different probe context; a per-regression "bug class" matcher would help triage.
 - `$262.createRealm`/`detachArrayBuffer` in the shim (a few test262 tests need them).
 - `FEATURE_INTEGER_WITHOUT_DECIMAL_PLACE` and other `ContextFactory` features as run flags.
 - More Java interop: `JavaAdapter`, `Packages`/`importClass` (needs `initStandardObjects`),

@@ -10,14 +10,13 @@ written to tests/findings/<signature>.js. Soft findings are appended to tests/fi
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 from pathlib import Path
 
 from hypothesis import HealthCheck, given, note, settings, target
 from hypothesis.database import DirectoryBasedExampleDatabase
 
+from oxpecker import findings
 from oxpecker.gen.builder import GenOptions
 from oxpecker.gen.strategies import Program, programs
 from oxpecker.harness.compare import HARD, JAVA_TYPES, SOFT, compare_run
@@ -30,10 +29,6 @@ KNOWN: set[str] = set()
 EXAMPLES = int(os.environ.get("OXPECKER_EXAMPLES", "200"))
 TOGGLES = frozenset(t for t in os.environ.get("OXPECKER_TOGGLES", "").split(",") if t)
 OPTS = GenOptions(toggles=TOGGLES)
-
-
-def signature(prog: Program, verdict) -> str:
-    return hashlib.sha1(verdict.signature().encode()).hexdigest()[:10]
 
 
 _FINDING_CLASSES: dict[str, type] = {}
@@ -51,27 +46,11 @@ def finding_error(sig: str) -> type:
 
 
 def record(prog: Program, run, verdict, *, fail: bool) -> None:
-    """Writes the finding under tests/findings/. Java-type and soft findings are appended to a
-    jsonl log (deduplicated by signature) so a long run never loses them; failing kinds are also
-    written as a .js reproducer that each Hypothesis shrink step overwrites with a smaller one."""
-    FINDINGS.mkdir(exist_ok=True)
-    log = FINDINGS / f"{verdict.kind}.jsonl"
-    sig = verdict.signature()
-    seen = set()
-    if log.exists():
-        seen = {json.loads(ln)["signature"] for ln in log.read_text().splitlines() if ln.strip()}
-    if sig not in seen:
-        with log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"signature": sig, "verdict": verdict.to_json(), "source": prog.source,
-                                "results": run.to_json()["results"]}) + "\n")
+    """Logs the finding (oxpecker.findings); failing kinds also get a .js reproducer that each
+    Hypothesis shrink step overwrites with a smaller one, and raise."""
+    findings.record(prog, run, verdict, out_dir=FINDINGS, reproducer=fail)
     if fail:
-        path = FINDINGS / f"{verdict.kind}-{signature(prog, verdict)}.js"
-        body = f"// oxpecker-expect: {verdict.kind}\n// " + verdict.pretty().replace("\n", " ") + "\n"
-        body += "// " + json.dumps({m: {"status": o.status, "value": o.value} for m, o in run.results.items()}) + "\n"
-        # The probed source: a finding in the trace is only reproducible with the probes present.
-        body += "// Replay: oxpecker diff " + str(path.relative_to(Path.cwd())) + "\n" + prog.source
-        path.write_text(body, encoding="utf-8")
-        raise finding_error(sig)(f"{verdict.pretty()}\n{prog.source}")
+        raise finding_error(verdict.signature())(f"{verdict.pretty()}\n{prog.source}")
 
 
 @settings(max_examples=EXAMPLES, deadline=None, database=DirectoryBasedExampleDatabase(".hypothesis/oxpecker"),

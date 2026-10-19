@@ -16,7 +16,10 @@ import org.jacoco.core.analysis.ICounter;
 import org.jacoco.core.data.ExecutionData;
 import org.jacoco.core.data.ExecutionDataReader;
 import org.jacoco.core.data.ExecutionDataStore;
+import org.jacoco.core.data.ExecutionDataWriter;
 import org.jacoco.core.data.SessionInfoStore;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 
 /**
  * Coverage of Rhino itself, through the JaCoCo agent attached by bin/harness (OXPECKER_COVERAGE=1).
@@ -78,6 +81,28 @@ final class Coverage {
 
     private static ExecutionData copy(ExecutionData ed) {
         return new ExecutionData(ed.getId(), ed.getName(), ed.getProbes().clone());
+    }
+
+    /** Persists the cumulative store (JaCoCo .exec format) so a later JVM resumes the frontier. */
+    synchronized void save(String path) throws IOException {
+        try (FileOutputStream out = new FileOutputStream(path)) {
+            ExecutionDataWriter w = new ExecutionDataWriter(out);
+            new SessionInfoStore().accept(w);
+            cumulative.accept(w);
+        }
+    }
+
+    /** Merges a saved .exec file into the cumulative store (not into any bucket). */
+    synchronized void load(String path) throws IOException {
+        try (FileInputStream in = new FileInputStream(path)) {
+            ExecutionDataReader r = new ExecutionDataReader(in);
+            r.setSessionInfoVisitor(new SessionInfoStore());
+            r.setExecutionDataVisitor(ed -> {
+                if (cumulative.get(ed.getId()) == null) totalProbes += ed.getProbes().length;
+                cumulative.put(copy(ed));
+            });
+            r.read();
+        }
     }
 
     synchronized long coveredProbes() {

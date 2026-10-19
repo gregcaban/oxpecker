@@ -1,12 +1,10 @@
 """Program templates: the overall shape of a generated program. A template drives the
-top-level statement list (one `st.lists` draw, so the shrinker can delete statements) and
+top-level statement list (one list draw, so the shrinker can delete statements) and
 places probes."""
 
 from __future__ import annotations
 
 from typing import Any
-
-from hypothesis import strategies as st
 
 from .builder import ProgramBuilder, Var
 from .generators.compiler import PERTURB, numeric_body
@@ -19,7 +17,7 @@ def statements(b: ProgramBuilder, lo: int | None = None, hi: int | None = None) 
     """Draws the top-level statement list and runs it, probing as configured."""
     lo = b.opts.min_statements if lo is None else lo
     hi = b.opts.max_statements if hi is None else hi
-    gens = b.draw(st.lists(st.sampled_from(b.pool), min_size=lo, max_size=hi))
+    gens = b.rand.sample_list(b.pool, lo, hi)
     for n, g in enumerate(gens, 1):
         b.run(g)
         if b.opts.probe_every and n % b.opts.probe_every == 0:

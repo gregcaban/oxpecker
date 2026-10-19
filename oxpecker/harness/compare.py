@@ -37,6 +37,9 @@ class Verdict:
         first = re.sub(r"arg\d+", "arg", first)
         first = re.sub(r"java\[\d+\]", "java[]", first)
         first = re.sub(r"@\d+", "@", first)
+        first = re.sub(r'"-?\d+"', '"#"', first)          # numeric property keys
+        # The same divergence surfaces as `value` (completion) or `trace[] arg` (a probe): one class.
+        first = re.sub(r"^(value|trace\[\] arg) ", "diff ", first)
         # Numbers become '#', except zero: -0 vs 0 is its own class of bug.
         first = re.sub(r"(?<![A-Za-z_#])(-?)(\d+(\.\d+)?(e[+-]?\d+)?)",
                        lambda m: m.group(1) + "0" if float(m.group(2)) == 0 else "#", first)
@@ -45,6 +48,18 @@ class Verdict:
     def to_json(self) -> dict:
         return {"kind": self.kind, "reasons": self.reasons, "javaTypeDiff": self.java_type_diff,
                 "firstTraceDiff": self.first_trace_diff, "signature": self.signature()}
+
+    def coarse_signature(self) -> str:
+        """kind + the *type* of the first difference, without any values: what a shrinker should
+        hold constant (values and lengths change while shrinking; the bug class should not)."""
+        import re
+        first = (self.reasons or self.java_type_diff or [""])[0]
+        m = re.match(r"(status \S+ vs \S+|thrown name|thrown value|value|trace\[\d+\]( arg\d+)?|trace length|output differs"
+                     r"|java\[\d+\]|java trace length|continuations|(\w+) crashed: [\w.$]+|java types differ|error messages differ)", first)
+        head = m.group(0) if m else first[:20]
+        head = re.sub(r"\[\d+\]", "[]", head)
+        head = re.sub(r"arg\d+", "arg", head)
+        return f"{self.kind}:{head}"
 
     def pretty(self) -> str:
         s = self.kind.upper()

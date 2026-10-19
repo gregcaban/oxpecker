@@ -120,6 +120,18 @@ class HarnessClient:
     def info(self) -> dict[str, Any]:
         return self._request({"cmd": "info"})["info"]
 
+    def coverage_save(self, path: str) -> int:
+        resp = self._request({"cmd": "coverage-save", "path": str(path)})
+        if "error" in resp:
+            raise HarnessError(resp["error"])
+        return int(resp["coveredProbes"])
+
+    def coverage_load(self, path: str) -> int:
+        resp = self._request({"cmd": "coverage-load", "path": str(path)})
+        if "error" in resp:
+            raise HarnessError(resp["error"])
+        return int(resp["coveredProbes"])
+
     def coverage_report(self) -> dict[str, Any]:
         """Per-bucket Rhino coverage (needs OXPECKER_COVERAGE=1 in the environment of bin/harness)."""
         resp = self._request({"cmd": "coverage"})

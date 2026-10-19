@@ -67,3 +67,30 @@ def test_metadata_is_consistent(p):
         s, e = span["lines"]
         assert 0 <= s <= e < len(lines)
     assert p.stats["probes"] == sum(1 for ln in lines if ln.lstrip().startswith("__probe("))
+
+
+def test_choice_sequence_replays_and_mutates(tmp_path: Path):
+    """A recorded choice sequence rebuilds the identical program; mutated sequences still build
+    (validity by construction) and parse."""
+    import random
+    from oxpecker.gen.rand import ChoiceRand, mutate
+    from oxpecker.gen.strategies import build_program
+
+    opts = GenOptions(toggles=ALL_TOGGLES, probes=False, comments=False)
+    rng = random.Random(1)
+    rand = ChoiceRand(seed=1)
+    p1 = build_program(rand, opts)
+    recorded = rand.choices[: rand.consumed]
+    p2 = build_program(ChoiceRand(recorded, seed=99), opts)
+    assert p1.source == p2.source
+    bad = []
+    for k in range(40):
+        c = mutate(recorded, rng, others=[recorded])
+        p = build_program(ChoiceRand(c, seed=k), opts)
+        f = tmp_path / f"m{k}.js"
+        f.write_text(p.source_plain)
+        if subprocess.run(["which", "node"], capture_output=True).returncode == 0:
+            r = subprocess.run(["node", "--check", str(f)], capture_output=True, text=True)
+            if r.returncode != 0:
+                bad.append(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "?")
+    assert not bad, bad

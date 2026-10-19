@@ -30,6 +30,8 @@ public final class Request {
     public Integer maxResumes;
     /** Coverage bucket (e.g. the generator name) this case's execution data is merged into. */
     public String coverageBucket;
+    /** For cmd coverage-save / coverage-load: the .exec file path. */
+    public String path;
 
     public static final int DEFAULT_LANGUAGE_VERSION = 200;
     public static final long DEFAULT_INSTRUCTION_BUDGET = 5_000_000L;

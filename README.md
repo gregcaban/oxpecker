@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/oxpecker.svg" width="320" alt="An oxpecker picking at a rhino"></p>
+
 # oxpecker
 
 Differential testing of Mozilla Rhino: every generated JavaScript program is run in Rhino's
@@ -36,6 +38,7 @@ oxpecker corpus test262 --filter language/statements/try   # replay test262 (val
 oxpecker corpus test262 --known-divergences       # files Rhino's test262.properties tags per mode
 oxpecker probe                                    # refresh the Rhino capability table (API generators)
 oxpecker run runs/first --coverage                # JaCoCo over Rhino: which optimizer/interpreter code was reached
+oxpecker fuzz --corpus runs/corpus --time 600     # coverage-guided corpus fuzzing; resumes corpus + coverage frontier
 oxpecker export -o ui/data --per-generator 20     # sample every generator/template for the inspector UI (+ --coverage)
 bin/harness --replay runs/first/case-0007.js      # one file, full per-mode detail
 bin/harness --replay x.js --mode compiled --language-version 250 --budget 0   # no instruction observer
@@ -61,6 +64,14 @@ OXPECKER_COVERAGE=1 pytest tests/test_differential.py   # ... steering on newly 
 
 Hard findings from the property test are shrunk by Hypothesis and written to `tests/findings/<sig>.js`;
 confirmed ones move to `tests/regressions/` where `test_harness.py` checks they stay detected.
+
+`oxpecker fuzz` is the second search strategy: a Fuzzilli/AFL-style loop that keeps a corpus of
+programs (as choice sequences) which each reached Rhino code nothing before them had, mutates a
+uniformly chosen corpus entry (or draws fresh with `--p-new`), and adds the result when it covers
+new probes. Findings with an unknown signature are shrunk by delta-debugging the choice sequence and
+written to `tests/findings/`. The corpus and the JaCoCo coverage frontier persist in `--corpus`, so
+the next run continues where the last stopped. Every mutated program is valid by construction
+because mutation happens on the generator's choices, not on JS text.
 
 ## Verdicts
 

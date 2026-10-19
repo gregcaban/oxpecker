@@ -82,6 +82,16 @@ public final class Harness {
                     return;
                 }
                 case "info" -> resp.put("info", info());
+                case "coverage-save", "coverage-load" -> {
+                    try {
+                        if (!runner.coverage.enabled()) resp.put("error", "coverage agent not attached");
+                        else if (cmd.equals("coverage-save")) runner.coverage.save(req.path);
+                        else runner.coverage.load(req.path);
+                        resp.put("coveredProbes", runner.coverage.coveredProbes());
+                    } catch (IOException e) {
+                        resp.put("error", cmd + " failed: " + e);
+                    }
+                }
                 case "coverage" -> {
                     try {
                         resp.put("coverage", runner.coverage.report());

@@ -323,6 +323,24 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------- fuzz
+def cmd_fuzz(args: argparse.Namespace) -> int:
+    from . import findings, fuzz
+    from .harness.client import HarnessClient
+
+    load_all()
+    opts = options_from_args(args)
+    known: set[str] = set()
+    if not args.no_known:
+        with HarnessClient(quiet=True) as client:
+            known = findings.known_signatures(client)
+    summary = fuzz.fuzz(corpus_dir=Path(args.corpus), opts=opts, iterations=args.iterations, seconds=args.time,
+                        p_new=args.p_new, language_version=args.language_version, seed=args.seed, known=known,
+                        findings_dir=Path(args.findings))
+    print(json.dumps({k: v for k, v in summary.items() if k != "options"}, indent=1))
+    return 0
+
+
 # ----------------------------------------------------------------------------- export
 def cmd_export(args: argparse.Namespace) -> int:
     from . import inspector
@@ -425,6 +443,18 @@ def main(argv: list[str] | None = None) -> int:
     _add_run_options(d)
     d.set_defaults(fn=cmd_diff)
 
+    fz = sub.add_parser("fuzz", help="coverage-guided corpus fuzzing (mutates choice sequences; persists corpus + coverage)")
+    fz.add_argument("--corpus", default="runs/corpus", help="directory for corpus.jsonl and coverage.exec (resumed if present)")
+    fz.add_argument("--iterations", type=int, default=None)
+    fz.add_argument("--time", type=float, default=None, help="seconds to run (default: 300 when --iterations is not given)")
+    fz.add_argument("--p-new", type=float, default=0.2, help="probability of drawing a fresh program instead of mutating")
+    fz.add_argument("--findings", default=str(Path("tests") / "findings"))
+    fz.add_argument("--no-known", action="store_true", help="do not suppress signatures already in tests/regressions")
+    fz.add_argument("--language-version", type=int, default=200)
+    fz.add_argument("--strict", action="store_true")
+    _add_gen_options(fz)
+    fz.set_defaults(fn=cmd_fuzz)
+
     ex = sub.add_parser("export", help="sample every generator/template through the harness; write ui/data/<run>")
     ex.add_argument("-o", "--out", default="ui/data")
     ex.add_argument("--per-generator", type=int, default=20)
@@ -454,6 +484,8 @@ def main(argv: list[str] | None = None) -> int:
     ls.set_defaults(fn=cmd_list)
 
     args = ap.parse_args(argv)
+    if args.cmd == "fuzz" and args.iterations is None and args.time is None:
+        args.time = 300.0
     return args.fn(args)
 
 
