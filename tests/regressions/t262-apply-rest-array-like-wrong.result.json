@@ -1,0 +1,61 @@
+{
+  "id": "t262-apply-rest-array-like-wrong",
+  "file": "tests/regressions/t262-apply-rest-array-like-wrong.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "trace[0] arg1 \u2026ay<Array.prototype>{length=1;[null]} vs \u2026ay<Array.prototype>{length=1;[9]}"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": 0,
+    "signature": "hard:trace[] arg \u2026ay<Array.prototype>{length=#;[null]} vs \u2026ay<Array.prototype>{length=#;[#]}"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "ok",
+      "compiledActually": false,
+      "value": "undefined",
+      "valueJavaTypes": "",
+      "thrown": null,
+      "trace": [
+        "\"p\" | @0Array<Array.prototype>{length=1;[null]}"
+      ],
+      "traceJavaTypes": [
+        "String | "
+      ],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 9,
+      "newProbes": null
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "ok",
+      "compiledActually": true,
+      "value": "undefined",
+      "valueJavaTypes": "",
+      "thrown": null,
+      "trace": [
+        "\"p\" | @0Array<Array.prototype>{length=1;[9]}"
+      ],
+      "traceJavaTypes": [
+        "String | Integer"
+      ],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 11,
+      "newProbes": null
+    }
+  }
+}

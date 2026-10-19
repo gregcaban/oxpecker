@@ -32,7 +32,7 @@
         "stack": "org.mozilla.javascript.CodeGenerator.badTree(CodeGenerator.java:292)\norg.mozilla.javascript.CodeGenerator.visitExpression(CodeGenerator.java:1293)\norg.mozilla.javascript.CodeGenerator.visitExpression(CodeGenerator.java:740)\norg.mozilla.javascript.CodeGenerator.visitStatement(CodeGenerator.java:471)\norg.mozilla.javascript.CodeGenerator.visitStatement(CodeGenerator.java:351)\norg.mozilla.javascript.CodeGenerator.generateICodeFromTree(CodeGenerator.java:162)\norg.mozilla.javascript.CodeGenerator.compileInt(CodeGenerator.java:108)\norg.mozilla.javascript.CodeGenerator.compile(CodeGenerator.java:66)\norg.mozilla.javascript.Interpreter.compileScript(Interpreter.java:82)\norg.mozilla.javascript.Context.compileImpl(Context.java:2731)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2655)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
       },
       "reason": null,
-      "ms": 7,
+      "ms": 16,
       "newProbes": null
     },
     "compiled": {
@@ -55,7 +55,7 @@
         "stack": "org.mozilla.javascript.optimizer.BodyCodegen.generateExpression(BodyCodegen.java:1841)\norg.mozilla.javascript.optimizer.BodyCodegen.generateCallArgArray(BodyCodegen.java:3152)\norg.mozilla.javascript.optimizer.BodyCodegen.visitStandardCall(BodyCodegen.java:2885)\norg.mozilla.javascript.optimizer.BodyCodegen.generateExpression(BodyCodegen.java:1099)\norg.mozilla.javascript.optimizer.BodyCodegen.generateStatement(BodyCodegen.java:902)\norg.mozilla.javascript.optimizer.BodyCodegen.generateStatement(BodyCodegen.java:681)\norg.mozilla.javascript.optimizer.BodyCodegen.generateBodyCode(BodyCodegen.java:57)\norg.mozilla.javascript.optimizer.Codegen.generateCode(Codegen.java:601)\norg.mozilla.javascript.optimizer.Codegen.compileToClassFileWithSplitting(Codegen.java:279)\norg.mozilla.javascript.optimizer.Codegen.doCompileInt(Codegen.java:158)\norg.mozilla.javascript.optimizer.Codegen.doCompile(Codegen.java:130)\norg.mozilla.javascript.optimizer.Codegen.compileScript(Codegen.java:114)\norg.mozilla.javascript.Context.compileImpl(Context.java:2731)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2655)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
       },
       "reason": null,
-      "ms": 9,
+      "ms": 12,
       "newProbes": null
     }
   }

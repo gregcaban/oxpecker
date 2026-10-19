@@ -21,4 +21,18 @@ export async function getCurrentRunId(sp: SearchParams | undefined): Promise<str
   return resolveRunId(fromCookie);
 }
 
+/** Serialize searchParams (minus `page`) back into a query string, e.g. for carrying filter context. */
+export function buildQueryString(sp: SearchParams | undefined, overrides?: SearchParams): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp ?? {})) {
+    if (v === undefined || k === "page") continue;
+    params.set(k, Array.isArray(v) ? v[0] : v);
+  }
+  for (const [k, v] of Object.entries(overrides ?? {})) {
+    if (v === undefined) continue;
+    params.set(k, Array.isArray(v) ? v[0] : v);
+  }
+  return params.toString();
+}
+
 export { listRuns };

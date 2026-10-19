@@ -27,7 +27,7 @@
       "output": [],
       "engineException": null,
       "reason": null,
-      "ms": 6,
+      "ms": 9,
       "newProbes": null
     },
     "compiled": {
@@ -50,7 +50,7 @@
         "stack": "java.base/java.lang.Class.getDeclaredMethods0(Native Method)\njava.base/java.lang.Class.privateGetDeclaredMethods(Class.java:3578)\njava.base/java.lang.Class.getDeclaredMethod(Class.java:2846)\norg.mozilla.javascript.optimizer.MHJSCode$Builder.build(MHJSCode.java:57)\norg.mozilla.javascript.JSDescriptor$Builder.build(JSDescriptor.java:377)\norg.mozilla.javascript.JSDescriptor$Builder.build(JSDescriptor.java:367)\norg.mozilla.javascript.optimizer.Codegen.defineClass(Codegen.java:205)\norg.mozilla.javascript.optimizer.Codegen.createScriptObject(Codegen.java:168)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2656)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
       },
       "reason": null,
-      "ms": 15,
+      "ms": 14,
       "newProbes": null
     }
   }

@@ -55,7 +55,7 @@
         "stack": "org.mozilla.javascript.ConsString.flatten(ConsString.java:60)\norg.mozilla.javascript.ConsString.toString(ConsString.java:55)\norg.mozilla.javascript.ContextFactory.doTopCall(ContextFactory.java:338)\norg.mozilla.javascript.ScriptRuntime.doTopCall(ScriptRuntime.java:4990)\norg.mozilla.javascript.JSScript.exec(JSScript.java:38)\ndev.oxpecker.harness.ModeRunner.execute(ModeRunner.java:183)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:110)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
       },
       "reason": null,
-      "ms": 4000,
+      "ms": 4459,
       "newProbes": null
     }
   }

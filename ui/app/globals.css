@@ -153,6 +153,18 @@ table.data-table tbody tr:hover {
   min-width: max-content;
 }
 
+.code-block-flush {
+  border: none;
+  border-radius: 0;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.code-block-sm {
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .code-line {
   display: flex;
   position: relative;

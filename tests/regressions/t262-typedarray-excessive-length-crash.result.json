@@ -1,0 +1,60 @@
+{
+  "id": "t262-typedarray-excessive-length-crash",
+  "file": "tests/regressions/t262-typedarray-excessive-length-crash.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "interpreted crashed: java.lang.IllegalArgumentException: None",
+      "compiled crashed: java.lang.IllegalArgumentException: None"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": null,
+    "signature": "hard:interpreted crashed: java.lang.IllegalArgumentException: None"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "crash",
+      "compiledActually": false,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.IllegalArgumentException",
+        "stack": "org.mozilla.javascript.ScriptRuntime.getArrayElements(ScriptRuntime.java:5711)\norg.mozilla.javascript.typedarrays.NativeTypedArrayView.js_constructor(NativeTypedArrayView.java:574)\norg.mozilla.javascript.typedarrays.NativeTypedArrayView.js_constructor(NativeTypedArrayView.java:421)\norg.mozilla.javascript.typedarrays.NativeInt8Array.js_constructor(NativeInt8Array.java:73)\norg.mozilla.javascript.ClassDescriptor$BuiltInJSCode.execute(ClassDescriptor.java:805)\norg.mozilla.javascript.ClassDescriptor$BuiltInJSCode.execute(ClassDescriptor.java:785)\norg.mozilla.javascript.JSFunction.construct(JSFunction.java:189)\norg.mozilla.javascript.Constructable.construct(Constructable.java:19)\norg.mozilla.javascript.Interpreter$DoNew.execute(Interpreter.java:2965)\norg.mozilla.javascript.Interpreter.interpretFunction(Interpreter.java:1109)\norg.mozilla.javascript.Interpreter.interpretLoop(Interpreter.java:885)\norg.mozilla.javascript.Interpreter.interpret(Interpreter.java:464)\norg.mozilla.javascript.InterpreterData.execute(InterpreterData.java:102)\norg.mozilla.javascript.JSScript.exec(JSScript.java:46)\norg.mozilla.javascript.ContextFactory.doTopCall(ContextFactory.java:337)\norg.mozilla.javascript.ScriptRuntime.doTopCall(ScriptRuntime.java:4990)\norg.mozilla.javascript.JSScript.exec(JSScript.java:38)\ndev.oxpecker.harness.ModeRunner.execute(ModeRunner.java:183)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:110)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 6,
+      "newProbes": null
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "crash",
+      "compiledActually": true,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.IllegalArgumentException",
+        "stack": "org.mozilla.javascript.ScriptRuntime.getArrayElements(ScriptRuntime.java:5711)\norg.mozilla.javascript.typedarrays.NativeTypedArrayView.js_constructor(NativeTypedArrayView.java:574)\norg.mozilla.javascript.typedarrays.NativeTypedArrayView.js_constructor(NativeTypedArrayView.java:421)\norg.mozilla.javascript.typedarrays.NativeInt8Array.js_constructor(NativeInt8Array.java:73)\norg.mozilla.javascript.ClassDescriptor$BuiltInJSCode.execute(ClassDescriptor.java:805)\norg.mozilla.javascript.ClassDescriptor$BuiltInJSCode.execute(ClassDescriptor.java:785)\norg.mozilla.javascript.JSFunction.construct(JSFunction.java:189)\norg.mozilla.javascript.Constructable.construct(Constructable.java:19)\norg.mozilla.javascript.ScriptRuntime.newObject(ScriptRuntime.java:3482)\norg.mozilla.javascript.gen.t262_typedarray_excessive_length_crash_js_27._c_script_0(t262-typedarray-excessive-length-crash.js:13)\norg.mozilla.javascript.optimizer.MHJSScriptCode.lambda$new$0(MHJSScriptCode.java:21)\norg.mozilla.javascript.optimizer.MHJSScriptCode.execute(MHJSScriptCode.java:38)\norg.mozilla.javascript.optimizer.MHJSScriptCode.execute(MHJSScriptCode.java:14)\norg.mozilla.javascript.JSScript.exec(JSScript.java:46)\norg.mozilla.javascript.ContextFactory.doTopCall(ContextFactory.java:337)\norg.mozilla.javascript.ScriptRuntime.doTopCall(ScriptRuntime.java:4990)\norg.mozilla.javascript.JSScript.exec(JSScript.java:38)\ndev.oxpecker.harness.ModeRunner.execute(ModeRunner.java:183)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:110)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 7,
+      "newProbes": null
+    }
+  }
+}

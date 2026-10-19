@@ -20,7 +20,13 @@ export interface TextField {
   label: string;
   placeholder?: string;
 }
-export type FilterField = SelectField | CheckboxField | TextField;
+export interface NumberField {
+  type: "number";
+  name: string;
+  label: string;
+  placeholder?: string;
+}
+export type FilterField = SelectField | CheckboxField | TextField | NumberField;
 
 export default function FilterBar({ fields }: { fields: FilterField[] }) {
   const router = useRouter();
@@ -82,11 +88,15 @@ export default function FilterBar({ fields }: { fields: FilterField[] }) {
         return (
           <input
             key={f.name}
-            type="text"
+            type={f.type === "number" ? "number" : "text"}
             defaultValue={searchParams.get(f.name) ?? ""}
             placeholder={f.placeholder ?? f.label}
             onChange={(e) => updateDebounced(f.name, e.target.value)}
-            className="rounded-md px-2 py-1 text-sm border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)] min-w-[200px]"
+            className={
+              f.type === "number"
+                ? "rounded-md px-2 py-1 text-sm border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)] w-24"
+                : "rounded-md px-2 py-1 text-sm border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)] min-w-[200px]"
+            }
           />
         );
       })}

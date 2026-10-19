@@ -1,0 +1,57 @@
+{
+  "id": "t262-yield-in-default-param-classfile-crash",
+  "file": "tests/regressions/t262-yield-in-default-param-classfile-crash.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "compiled crashed: org.mozilla.classfile.ClassFileWriter$ClassFileFormatException: out of range variable"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": null,
+    "signature": "hard:compiled crashed: org.mozilla.classfile.ClassFileWriter$ClassFileFormatException: out of range variable"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "ok",
+      "compiledActually": false,
+      "value": "undefined",
+      "valueJavaTypes": "",
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 6,
+      "newProbes": null
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "crash",
+      "compiledActually": null,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "org.mozilla.classfile.ClassFileWriter$ClassFileFormatException",
+        "message": "out of range variable",
+        "stack": "org.mozilla.classfile.ClassFileWriter.add(ClassFileWriter.java:613)\norg.mozilla.classfile.ClassFileWriter.xop(ClassFileWriter.java:1182)\norg.mozilla.classfile.ClassFileWriter.addALoad(ClassFileWriter.java:1159)\norg.mozilla.javascript.optimizer.BodyCodegen.generateSetGeneratorResumptionPoint(BodyCodegen.java:521)\norg.mozilla.javascript.optimizer.BodyCodegen.generateLocalYieldPoint(BodyCodegen.java:1977)\norg.mozilla.javascript.optimizer.BodyCodegen.generateYieldPoint(BodyCodegen.java:1937)\norg.mozilla.javascript.optimizer.BodyCodegen.generateExpression(BodyCodegen.java:1790)\norg.mozilla.javascript.optimizer.BodyCodegen.visitSetVar(BodyCodegen.java:4656)\norg.mozilla.javascript.optimizer.BodyCodegen.generateStatement(BodyCodegen.java:881)\norg.mozilla.javascript.optimizer.BodyCodegen.generateStatement(BodyCodegen.java:681)\norg.mozilla.javascript.optimizer.BodyCodegen.generateStatement(BodyCodegen.java:681)\norg.mozilla.javascript.optimizer.BodyCodegen.generateBodyCode(BodyCodegen.java:57)\norg.mozilla.javascript.optimizer.Codegen.generateCode(Codegen.java:601)\norg.mozilla.javascript.optimizer.Codegen.compileToClassFileWithSplitting(Codegen.java:279)\norg.mozilla.javascript.optimizer.Codegen.doCompileInt(Codegen.java:158)\norg.mozilla.javascript.optimizer.Codegen.doCompile(Codegen.java:130)\norg.mozilla.javascript.optimizer.Codegen.compileScript(Codegen.java:114)\norg.mozilla.javascript.Context.compileImpl(Context.java:2731)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2655)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 6,
+      "newProbes": null
+    }
+  }
+}

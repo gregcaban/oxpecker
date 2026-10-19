@@ -1,0 +1,62 @@
+{
+  "id": "t262-const-nested-array-dstr-npe",
+  "file": "tests/regressions/t262-const-nested-array-dstr-npe.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "interpreted crashed: java.lang.NullPointerException: Cannot invoke \"org.mozilla.javascript.VarScope.putConst(org.mozilla.javascript.Context, String, org.mozilla.javascript.P",
+      "compiled crashed: java.lang.NullPointerException: Cannot invoke \"org.mozilla.javascript.VarScope.putConst(org.mozilla.javascript.Context, String, org.mozilla.javascript.P"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": null,
+    "signature": "hard:interpreted crashed: java.lang.NullPointerException: Cannot invoke \"org.mozilla.javascript.VarScope.putConst(org.mozilla.javascript.Context, String, org.mozilla.javascript.P"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "crash",
+      "compiledActually": false,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.NullPointerException",
+        "message": "Cannot invoke \"org.mozilla.javascript.VarScope.putConst(org.mozilla.javascript.Context, String, org.mozilla.javascript.PropHolder, Object)\" because \"obj\" is null",
+        "stack": "org.mozilla.javascript.ScriptableObject.putConstProperty(ScriptableObject.java:2621)\norg.mozilla.javascript.ScriptRuntime.setConst(ScriptRuntime.java:2673)\norg.mozilla.javascript.Interpreter$DoSetConst.execute(Interpreter.java:2142)\norg.mozilla.javascript.Interpreter.interpretFunction(Interpreter.java:1109)\norg.mozilla.javascript.Interpreter.interpretLoop(Interpreter.java:885)\norg.mozilla.javascript.Interpreter.interpret(Interpreter.java:464)\norg.mozilla.javascript.InterpreterData.execute(InterpreterData.java:102)\norg.mozilla.javascript.JSScript.exec(JSScript.java:46)\norg.mozilla.javascript.ContextFactory.doTopCall(ContextFactory.java:337)\norg.mozilla.javascript.ScriptRuntime.doTopCall(ScriptRuntime.java:4990)\norg.mozilla.javascript.JSScript.exec(JSScript.java:38)\ndev.oxpecker.harness.ModeRunner.execute(ModeRunner.java:183)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:110)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 8,
+      "newProbes": null
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "crash",
+      "compiledActually": true,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.NullPointerException",
+        "message": "Cannot invoke \"org.mozilla.javascript.VarScope.putConst(org.mozilla.javascript.Context, String, org.mozilla.javascript.PropHolder, Object)\" because \"obj\" is null",
+        "stack": "org.mozilla.javascript.ScriptableObject.putConstProperty(ScriptableObject.java:2621)\norg.mozilla.javascript.ScriptRuntime.setConst(ScriptRuntime.java:2673)\norg.mozilla.javascript.gen.t262_const_nested_array_dstr_npe_js_20._c_script_0(t262-const-nested-array-dstr-npe.js:14)\norg.mozilla.javascript.optimizer.MHJSScriptCode.lambda$new$0(MHJSScriptCode.java:21)\norg.mozilla.javascript.optimizer.MHJSScriptCode.execute(MHJSScriptCode.java:38)\norg.mozilla.javascript.optimizer.MHJSScriptCode.execute(MHJSScriptCode.java:14)\norg.mozilla.javascript.JSScript.exec(JSScript.java:46)\norg.mozilla.javascript.ContextFactory.doTopCall(ContextFactory.java:337)\norg.mozilla.javascript.ScriptRuntime.doTopCall(ScriptRuntime.java:4990)\norg.mozilla.javascript.JSScript.exec(JSScript.java:38)\ndev.oxpecker.harness.ModeRunner.execute(ModeRunner.java:183)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:110)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 9,
+      "newProbes": null
+    }
+  }
+}
