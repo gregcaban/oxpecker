@@ -11,9 +11,18 @@ repositories {
     mavenCentral()
 }
 
+configurations {
+    jacocoAgent
+}
+
 dependencies {
     implementation "org.mozilla:rhino:${rhinoVersion}"
     implementation 'com.google.code.gson:gson:2.11.0'
+    // Coverage of Rhino itself (brief §9.9): the agent is attached by bin/harness when
+    // OXPECKER_COVERAGE=1; core analyses the exec data against the Rhino classes.
+    implementation 'org.jacoco:org.jacoco.core:0.8.12'
+    compileOnly 'org.jacoco:org.jacoco.agent:0.8.12:runtime'
+    jacocoAgent 'org.jacoco:org.jacoco.agent:0.8.12:runtime'
     testImplementation platform('org.junit:junit-bom:5.11.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -39,6 +48,13 @@ tasks.register('fatJar', Jar) {
     from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
+
+tasks.register('jacocoAgentJar', Copy) {
+    from configurations.jacocoAgent
+    into layout.buildDirectory.dir('libs')
+    rename { 'jacocoagent.jar' }
+}
+tasks.named('fatJar') { dependsOn 'jacocoAgentJar' }
 
 test {
     useJUnitPlatform()

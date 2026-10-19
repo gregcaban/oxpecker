@@ -80,13 +80,17 @@ def record(prog: Program, run, verdict, *, fail: bool) -> None:
 @given(programs(OPTS))
 def test_interpreted_equals_compiled(harness, known, prog: Program):
     KNOWN.update(known)
-    run = harness.run(prog.source, seed=1)
+    run = harness.run(prog.source, seed=1, coverage_bucket=prog.template)
     verdict = compare_run(run)
     note(prog.source)
     note(verdict.pretty())
-    # Reward programs that get further before throwing or timing out.
+    # Reward programs that get further before throwing or timing out, and (with OXPECKER_COVERAGE=1)
+    # programs that reach Rhino code nothing before them reached.
     depth = min(len(o.trace) for o in run.results.values())
     target(float(depth), label="trace depth")
+    fresh = sum(o.newProbes or 0 for o in run.results.values())
+    if fresh or harness.coverage:
+        target(float(fresh), label="new Rhino probes")
 
     if verdict.kind in (SOFT, JAVA_TYPES):
         record(prog, run, verdict, fail=False)

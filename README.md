@@ -34,6 +34,8 @@ oxpecker diff runs/first/case-0007.js             # one file: per-field first di
 oxpecker corpus test262 --filter language/statements/try   # replay test262 (value-level comparison)
 oxpecker corpus test262 --known-divergences       # files Rhino's test262.properties tags per mode
 oxpecker probe                                    # refresh the Rhino capability table (API generators)
+oxpecker run runs/first --coverage                # JaCoCo over Rhino: which optimizer/interpreter code was reached
+oxpecker export -o ui/data --per-generator 20     # sample every generator/template for the inspector UI (+ --coverage)
 bin/harness --replay runs/first/case-0007.js      # one file, full per-mode detail
 bin/harness --replay x.js --mode compiled --language-version 250 --budget 0   # no instruction observer
 ```
@@ -53,6 +55,7 @@ Run knobs: `--language-version 200|250`, `--wall-ms`, `--strict-java-types`.
 pytest tests/test_generator.py              # no JVM: determinism, every generator fires, node --check
 pytest tests/test_harness.py                # harness self-tests: isolation, fallback, budget, known findings
 pytest tests/test_differential.py           # the property test; OXPECKER_EXAMPLES=2000, OXPECKER_TOGGLES=let,generators
+OXPECKER_COVERAGE=1 pytest tests/test_differential.py   # ... steering on newly covered Rhino probes (JaCoCo)
 ```
 
 Hard findings from the property test are shrunk by Hypothesis and written to `tests/findings/<sig>.js`;

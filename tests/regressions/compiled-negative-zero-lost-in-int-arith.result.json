@@ -27,7 +27,8 @@
       "output": [],
       "engineException": null,
       "reason": null,
-      "ms": 14
+      "ms": 9,
+      "newProbes": null
     },
     "compiled": {
       "mode": "compiled",
@@ -45,7 +46,8 @@
       "output": [],
       "engineException": null,
       "reason": null,
-      "ms": 15
+      "ms": 14,
+      "newProbes": null
     }
   }
 }

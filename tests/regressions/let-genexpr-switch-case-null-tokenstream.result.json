@@ -1,0 +1,62 @@
+{
+  "id": "let-genexpr-switch-case-null-tokenstream",
+  "file": "tests/regressions/let-genexpr-switch-case-null-tokenstream.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "interpreted crashed: java.lang.NullPointerException: Cannot read field \"cursor\" because \"this.ts\" is null",
+      "compiled crashed: java.lang.NullPointerException: Cannot read field \"cursor\" because \"this.ts\" is null"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": null,
+    "signature": "hard:interpreted crashed: java.lang.NullPointerException: Cannot read field \"cursor\" because \"this.ts\" is null"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "crash",
+      "compiledActually": null,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.NullPointerException",
+        "message": "Cannot read field \"cursor\" because \"this.ts\" is null",
+        "stack": "org.mozilla.javascript.Parser.codeBug(Parser.java:5829)\norg.mozilla.javascript.Parser.pushScope(Parser.java:563)\norg.mozilla.javascript.IRFactory.transformLetNode(IRFactory.java:939)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:272)\norg.mozilla.javascript.IRFactory.genExprTransformHelper(IRFactory.java:816)\norg.mozilla.javascript.IRFactory.transformGenExpr(IRFactory.java:785)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:180)\norg.mozilla.javascript.IRFactory.transformSwitch(IRFactory.java:1237)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:228)\norg.mozilla.javascript.IRFactory.transformScript(IRFactory.java:1126)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:224)\norg.mozilla.javascript.IRFactory.transformTree(IRFactory.java:138)\norg.mozilla.javascript.Context.parseInt(Context.java:2819)\norg.mozilla.javascript.Context.parse(Context.java:2780)\norg.mozilla.javascript.Context.compileImpl(Context.java:2716)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2655)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 9,
+      "newProbes": null
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "crash",
+      "compiledActually": null,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.NullPointerException",
+        "message": "Cannot read field \"cursor\" because \"this.ts\" is null",
+        "stack": "org.mozilla.javascript.Parser.codeBug(Parser.java:5829)\norg.mozilla.javascript.Parser.pushScope(Parser.java:563)\norg.mozilla.javascript.IRFactory.transformLetNode(IRFactory.java:939)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:272)\norg.mozilla.javascript.IRFactory.genExprTransformHelper(IRFactory.java:816)\norg.mozilla.javascript.IRFactory.transformGenExpr(IRFactory.java:785)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:180)\norg.mozilla.javascript.IRFactory.transformSwitch(IRFactory.java:1237)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:228)\norg.mozilla.javascript.IRFactory.transformScript(IRFactory.java:1126)\norg.mozilla.javascript.IRFactory.transform(IRFactory.java:224)\norg.mozilla.javascript.IRFactory.transformTree(IRFactory.java:138)\norg.mozilla.javascript.Context.parseInt(Context.java:2819)\norg.mozilla.javascript.Context.parse(Context.java:2780)\norg.mozilla.javascript.Context.compileImpl(Context.java:2716)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2655)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 7,
+      "newProbes": null
+    }
+  }
+}

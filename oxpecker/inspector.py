@@ -56,7 +56,8 @@ def sample(opts: GenOptions, per_generator: int, per_template: int, seed: int) -
 
 
 def export(out_root: Path, *, per_generator: int = 20, per_template: int = 20, seed: int = 0,
-           opts: GenOptions = GenOptions(), language_version: int = 200, quiet: bool = False) -> Path:
+           opts: GenOptions = GenOptions(), language_version: int = 200, quiet: bool = False,
+           coverage: bool = False) -> Path:
     rid = run_id()
     out = out_root / rid
     out.mkdir(parents=True, exist_ok=True)
@@ -72,9 +73,10 @@ def export(out_root: Path, *, per_generator: int = 20, per_template: int = 20, s
     usage: Counter[str] = Counter()
     findings: dict[str, dict[str, Any]] = {}
     t0 = time.time()
-    with HarnessClient(quiet=True) as client, (out / "samples.jsonl").open("w", encoding="utf-8") as sf:
+    with HarnessClient(quiet=True, coverage=coverage) as client, (out / "samples.jsonl").open("w", encoding="utf-8") as sf:
         for i, (kind, focus, p) in enumerate(samples):
-            run = client.run(p.source, language_version=language_version, id=f"s-{i:06d}", seed=1)
+            run = client.run(p.source, language_version=language_version, id=f"s-{i:06d}", seed=1,
+                             coverage_bucket=focus if coverage else None)
             v = compare_run(run)
             rec = {"id": f"s-{i:06d}", "runId": rid, "kind": kind, "focus": focus, "source": p.source,
                    "sourcePlain": p.source_plain, "seed": seed, "template": p.template,
@@ -114,6 +116,9 @@ def export(out_root: Path, *, per_generator: int = 20, per_template: int = 20, s
                 f["focus"][focus] += 1
             if not quiet and (i + 1) % 200 == 0:
                 print(f"... {i + 1}/{len(samples)} ({(i + 1) / (time.time() - t0):.1f}/s)", file=sys.stderr)
+        if coverage:
+            # coverage.json: {bucket "focus|mode": {packages, classes}} plus cumulative totals.
+            (out / "coverage.json").write_text(json.dumps(client.coverage_report(), indent=1), encoding="utf-8")
 
     table = {}
     for focus, m in metrics.items():

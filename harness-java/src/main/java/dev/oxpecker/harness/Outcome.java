@@ -42,6 +42,8 @@ public final class Outcome {
     /** Why a timeout/resource status was reported: instructions, wall, watchdog, stack. */
     public String reason;
     public long ms;
+    /** Rhino probes hit for the first time in this JVM by this run (JaCoCo agent attached only). */
+    public Integer newProbes;
 
     public static final class Thrown {
         /** "js-value" for a JS throw, "ecma-error" for a Rhino runtime error, "evaluator" for EvaluatorException. */

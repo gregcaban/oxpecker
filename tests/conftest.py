@@ -8,7 +8,9 @@ from oxpecker.harness.client import HarnessClient
 def harness():
     if not HARNESS_BIN.exists():
         pytest.skip("harness not built: cd harness-java && ./gradlew fatJar")
-    with HarnessClient(quiet=True) as c:
+    # OXPECKER_COVERAGE=1 attaches JaCoCo so the property test can steer on new Rhino probes.
+    import os
+    with HarnessClient(quiet=True, coverage=bool(os.environ.get("OXPECKER_COVERAGE"))) as c:
         yield c
 
 

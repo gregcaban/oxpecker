@@ -34,6 +34,7 @@ class Outcome:
     engineException: dict[str, Any] | None = None
     reason: str | None = None
     ms: int = 0
+    newProbes: int | None = None
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> "Outcome":
@@ -63,8 +64,9 @@ class HarnessClient:
     """One long-lived JVM. Not thread-safe; use one client per worker."""
 
     def __init__(self, harness_bin: os.PathLike[str] | str = HARNESS_BIN, *, recycle_every: int = 5000,
-                 hard_timeout_s: float = 60.0, quiet: bool = False):
+                 hard_timeout_s: float = 60.0, quiet: bool = False, coverage: bool = False):
         self.harness_bin = str(harness_bin)
+        self.coverage = coverage
         self.recycle_every = recycle_every
         self.hard_timeout_s = hard_timeout_s
         self.quiet = quiet
@@ -76,9 +78,13 @@ class HarnessClient:
     def start(self) -> None:
         if not os.path.exists(self.harness_bin):
             raise HarnessError(f"harness launcher not found: {self.harness_bin} (build with: cd harness-java && ./gradlew fatJar)")
+        env = dict(os.environ)
+        if self.coverage:
+            env["OXPECKER_COVERAGE"] = "1"
+            self.recycle_every = max(self.recycle_every, 10 ** 9)   # coverage lives in the JVM: never recycle
         self.proc = subprocess.Popen(
             [self.harness_bin, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=None if not self.quiet else subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
+            stderr=None if not self.quiet else subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1, env=env,
         )
         self.cases_since_start = 0
 
@@ -114,6 +120,13 @@ class HarnessClient:
     def info(self) -> dict[str, Any]:
         return self._request({"cmd": "info"})["info"]
 
+    def coverage_report(self) -> dict[str, Any]:
+        """Per-bucket Rhino coverage (needs OXPECKER_COVERAGE=1 in the environment of bin/harness)."""
+        resp = self._request({"cmd": "coverage"})
+        if "error" in resp:
+            raise HarnessError(resp["error"])
+        return resp["coverage"]
+
     # -- requests -------------------------------------------------------------------------
     def _request(self, req: dict[str, Any]) -> dict[str, Any]:
         if self.proc is None:
@@ -146,7 +159,8 @@ class HarnessClient:
 
     def run(self, source: str, *, modes: tuple[str, ...] = DEFAULT_MODES, language_version: int = 200,
             strict: bool = False, instruction_budget: int = 5_000_000, wall_ms: int = 5000, seed: int = 1,
-            id: str | None = None, source_name: str = "case.js", continuations: bool | None = None) -> RunResult:
+            id: str | None = None, source_name: str = "case.js", continuations: bool | None = None,
+            coverage_bucket: str | None = None) -> RunResult:
         """Runs one case in every mode. If the JVM dies or asks to be restarted, the missing modes
         are reported as crash/timeout and the JVM is restarted."""
         case_id = id or uuid.uuid4().hex[:12]
@@ -154,7 +168,8 @@ class HarnessClient:
                "strict": strict, "instructionBudget": instruction_budget, "wallMs": wall_ms, "seed": seed,
                "sourceName": source_name,
                # Auto-detected unless stated: only scripts that pause need the continuation runner.
-               "continuations": ("__pause" in source or "Continuation" in source) if continuations is None else continuations}
+               "continuations": ("__pause" in source or "Continuation" in source) if continuations is None else continuations,
+               "coverageBucket": coverage_bucket}
         if self.cases_since_start >= self.recycle_every:
             self.restart()
         self.cases_since_start += 1

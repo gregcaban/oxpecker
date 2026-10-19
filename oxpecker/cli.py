@@ -129,11 +129,14 @@ def run_paths(paths: list[Path], args: argparse.Namespace, *, index_by_id: dict[
     findings: list[tuple[Path, str]] = []
     results: dict[str, Any] = {}
     t0 = time.time()
-    with HarnessClient(quiet=True) as client:
+    with HarnessClient(quiet=True, coverage=args.coverage) as client:
         for f in files:
             src = f.read_text(encoding="utf-8")
+            bucket = None
+            if args.coverage and index_by_id and f.stem in index_by_id:
+                bucket = index_by_id[f.stem].get("template")
             run = client.run(src, modes=modes, language_version=args.language_version, strict=args.strict,
-                             id=f.stem, source_name=f.name, wall_ms=args.wall_ms)
+                             id=f.stem, source_name=f.name, wall_ms=args.wall_ms, coverage_bucket=bucket)
             v = compare_run(run, strict_java_types=args.strict_java_types)
             counts[v.kind] += 1
             for m, o in run.results.items():
@@ -147,6 +150,11 @@ def run_paths(paths: list[Path], args: argparse.Namespace, *, index_by_id: dict[
                 print(line)
             elif args.verbose:
                 print(line)
+        if args.coverage:
+            cov = client.coverage_report()
+            out_dir = paths[0] if paths[0].is_dir() else paths[0].parent
+            (out_dir / "coverage.json").write_text(json.dumps(cov, indent=1), encoding="utf-8")
+            print_coverage(cov)
     elapsed = time.time() - t0
     print(f"\n{len(files)} cases in {elapsed:.1f}s ({len(files) / max(elapsed, 1e-9):.1f}/s), JVM restarts: {client.restarts}")
     print("verdicts: " + ", ".join(f"{k}={n}" for k, n in sorted(counts.items())))
@@ -161,6 +169,20 @@ def run_paths(paths: list[Path], args: argparse.Namespace, *, index_by_id: dict[
     for m in modes:
         print(f"  {m:12} " + ", ".join(f"{k}={n}" for k, n in sorted(status_counts[m].items())))
     return results
+
+
+def print_coverage(cov: dict[str, Any]) -> None:
+    if not cov.get("enabled"):
+        print("coverage: agent not attached (is OXPECKER_COVERAGE=1 reaching bin/harness?)")
+        return
+    print(f"\nRhino coverage: {cov['coveredProbes']}/{cov['totalProbes']} probes")
+    for bucket, rep in cov["buckets"].items():
+        pk = rep["packages"]
+        opt = pk.get("org.mozilla.javascript.optimizer", [0, 0, 0, 0, 0, 0])
+        core = pk.get("org.mozilla.javascript", [0, 0, 0, 0, 0, 0])
+        interp = rep["classes"].get("org.mozilla.javascript.Interpreter", [0, 0])
+        print(f"  {bucket:40} optimizer methods {opt[0]:4}/{opt[1]:<4} branches {opt[2]:5}/{opt[3]:<5}  "
+              f"core methods {core[0]:5}/{core[1]:<5}  Interpreter {interp[0]:3}/{interp[1]}")
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -308,7 +330,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     opts = GenOptions(toggles=frozenset(args.toggle or ()), strict=args.strict,
                       max_statements=args.max_statements, min_statements=args.min_statements)
     out = inspector.export(Path(args.out), per_generator=args.per_generator, per_template=args.per_template,
-                           seed=args.seed, opts=opts, language_version=args.language_version)
+                           seed=args.seed, opts=opts, language_version=args.language_version, coverage=args.coverage)
     print(f"exported to {out}\n")
     inspector.print_table(out / "metrics.json", worst=args.worst)
     return 0
@@ -361,6 +383,8 @@ def _add_run_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--strict-java-types", action="store_true",
                    help="treat Integer-vs-Double style Java representation differences as hard findings")
     p.add_argument("-v", "--verbose", action="store_true", help="print every case, not only findings")
+    p.add_argument("--coverage", action="store_true",
+                   help="attach JaCoCo to the harness and report which Rhino code was reached (per template bucket)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -412,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("--strict", action="store_true")
     ex.add_argument("--language-version", type=int, default=200)
     ex.add_argument("--worst", type=int, default=25, help="rows in the printed quality table")
+    ex.add_argument("--coverage", action="store_true", help="also write coverage.json (JaCoCo over Rhino, per focus)")
     ex.set_defaults(fn=cmd_export)
 
     mt = sub.add_parser("metrics", help="print the quality table of an exported run")

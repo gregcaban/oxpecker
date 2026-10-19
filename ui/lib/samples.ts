@@ -169,7 +169,10 @@ export async function getSampleFacets(runId: string): Promise<SampleFacets> {
 
 export async function countSamples(runId: string): Promise<number> {
   let n = 0;
-  for await (const _s of iterSamples(runId)) n++;
+  for await (const sample of iterSamples(runId)) {
+    void sample;
+    n++;
+  }
   return n;
 }
 

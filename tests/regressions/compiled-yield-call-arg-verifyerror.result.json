@@ -1,0 +1,57 @@
+{
+  "id": "compiled-yield-call-arg-verifyerror",
+  "file": "tests/regressions/compiled-yield-call-arg-verifyerror.js",
+  "verdict": {
+    "kind": "hard",
+    "reasons": [
+      "compiled crashed: java.lang.VerifyError: Bad type on operand stack\nException Details:\n  Location:\n    org/mozilla/javascript/gen/compiled_yield_call_arg_verifyer"
+    ],
+    "javaTypeDiff": [],
+    "firstTraceDiff": null,
+    "signature": "hard:compiled crashed: java.lang.VerifyError: Bad type on operand stack\nException Details:\n  Location:\n    org/mozilla/javascript/gen/compiled_yield_call_arg_verifyer"
+  },
+  "results": {
+    "interpreted": {
+      "mode": "interpreted",
+      "status": "ok",
+      "compiledActually": false,
+      "value": "undefined",
+      "valueJavaTypes": "",
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": null,
+      "reason": null,
+      "ms": 6,
+      "newProbes": null
+    },
+    "compiled": {
+      "mode": "compiled",
+      "status": "crash",
+      "compiledActually": null,
+      "value": null,
+      "valueJavaTypes": null,
+      "thrown": null,
+      "trace": [],
+      "traceJavaTypes": [],
+      "javaTrace": [],
+      "javaTraceTypes": [],
+      "continuations": [],
+      "soft": [],
+      "output": [],
+      "engineException": {
+        "clazz": "java.lang.VerifyError",
+        "message": "Bad type on operand stack\nException Details:\n  Location:\n    org/mozilla/javascript/gen/compiled_yield_call_arg_verifyerror_js_8._c_g_1_gen(Lorg/mozilla/javascript/Context;Lorg/mozilla/javascript/JSFunction;Ljava/lang/Object;Lorg/mozilla/javascript/VarScope;ILjava/lang/Object;)Ljava/lang/Object; @185: invokevirtual\n  Reason:\n    Type 'java/lang/Object' (current frame, stack[1]) is not assignable to 'org/mozilla/javascript/ScriptRuntime$LookupResult'\n  Current Frame:\n    bci: @185\n    flags: { }\n    locals: { 'org/mozilla/javascript/Context', 'org/mozilla/javascript/JSFunction', 'org/mozilla/javascript/optimizer/OptRuntime$GeneratorState', 'org/mozilla/javascript/VarScope', 'org/mozilla/javascript/Scriptable', '[Ljava/lang/Object;', integer, 'java/lang/Object' }\n    stack: { 'java/lang/Object', 'java/lang/Object' }\n  Bytecode:\n    0000000: 2bb9 004b 0100 4e15 0436 062c c000 4d59\n    0000010: 4d59 b400 503a 04b4 0054 4e2c b400 57aa\n    0000020: 0000 00c6 0000 0000 0000 0001 0000 0029\n    0000030: 0000 0072 1905 bb00 595a 5f12 5a03 b700\n    0000040: 5dbf 1905 c000 5fbf 1506 059f fff7 1506\n    0000050: 049f ffe3 2a04 b800 362d 2aba 006a 0000\n    0000060: 04bd 0004 2cb8 006e 5a5f 035f 535a 5f04\n    0000070: 5f53 57b2 0072 2c04 b500 57b0 1905 bb00\n    0000080: 595a 5f12 5a10 0cb7 005d bf19 05c0 005f\n    0000090: bf15 0605 9fff f715 0604 9fff e22c b800\n    00000a0: 6e59 0432 5f59 0332 5f57 1905 3a07 c000\n    00000b0: 3e59 0319 0753 3a05 59b6 0078 5fb6 007c\n    00000c0: 2a5f 2d5f 1905 b900 8205 0057 b200 262c\n    00000d0: 5fb8 0086 2a11 0080 b800 36a7 000a 0000\n    00000e0: 0000 0000 bf2c 1287 b500 572d 2cb8 008a\n    00000f0: b200 26b0                              \n  Stackmap Table:\n    full_frame(@52,{Object[#56],Object[#30],Object[#77],Object[#60],Object[#140],Object[#4],Integer},{})\n    same_frame(@66)\n    same_frame(@72)\n    same_frame(@124)\n    same_frame(@139)\n    same_frame(@145)\n    full_frame(@222,{Object[#56],Object[#30],Object[#4],Object[#60],Integer,Object[#4]},{Object[#95]})\n    full_frame(@229,{Object[#56],Object[#30],Object[#77],Object[#60],Object[#140],Object[#4],Integer},{})\n",
+        "stack": "java.base/java.lang.Class.getDeclaredMethods0(Native Method)\njava.base/java.lang.Class.privateGetDeclaredMethods(Class.java:3578)\njava.base/java.lang.Class.getDeclaredMethod(Class.java:2846)\norg.mozilla.javascript.optimizer.MHJSCode$Builder.build(MHJSCode.java:57)\norg.mozilla.javascript.JSDescriptor$Builder.build(JSDescriptor.java:377)\norg.mozilla.javascript.JSDescriptor$Builder.build(JSDescriptor.java:367)\norg.mozilla.javascript.optimizer.Codegen.defineClass(Codegen.java:205)\norg.mozilla.javascript.optimizer.Codegen.createScriptObject(Codegen.java:168)\norg.mozilla.javascript.Context.compileScriptImpl(Context.java:2656)\norg.mozilla.javascript.Context.compileScript(Context.java:1562)\norg.mozilla.javascript.Context.compileString(Context.java:1510)\norg.mozilla.javascript.Context.compileString(Context.java:1499)\ndev.oxpecker.harness.ModeRunner.runOnThisThread(ModeRunner.java:95)\ndev.oxpecker.harness.ModeRunner.lambda$run$0(ModeRunner.java:37)\njava.base/java.lang.Thread.run(Thread.java:1583)\n"
+      },
+      "reason": null,
+      "ms": 15,
+      "newProbes": null
+    }
+  }
+}

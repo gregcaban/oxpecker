@@ -28,6 +28,8 @@ public final class Request {
     public Boolean continuations;
     /** Maximum number of pause/resume rounds per run. */
     public Integer maxResumes;
+    /** Coverage bucket (e.g. the generator name) this case's execution data is merged into. */
+    public String coverageBucket;
 
     public static final int DEFAULT_LANGUAGE_VERSION = 200;
     public static final long DEFAULT_INSTRUCTION_BUDGET = 5_000_000L;

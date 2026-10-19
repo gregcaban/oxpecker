@@ -50,6 +50,7 @@ public final class Harness {
         m.put("java", System.getProperty("java.version"));
         m.put("harness", "0.1.0");
         m.put("modes", List.of(Mode.INTERPRETED.wire, Mode.COMPILED.wire, Mode.DEBUGGER.wire));
+        m.put("coverage", new Coverage().enabled());
         return m;
     }
 
@@ -81,6 +82,13 @@ public final class Harness {
                     return;
                 }
                 case "info" -> resp.put("info", info());
+                case "coverage" -> {
+                    try {
+                        resp.put("coverage", runner.coverage.report());
+                    } catch (IOException e) {
+                        resp.put("error", "coverage report failed: " + e);
+                    }
+                }
                 case "run" -> {
                     if (req.source == null) {
                         resp.put("error", "missing source");

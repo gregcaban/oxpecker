@@ -24,6 +24,7 @@ final class ModeRunner {
     static final int INTERPRETER_STACK_DEPTH = 20_000;
 
     private final HarnessFactory factory = new HarnessFactory();
+    final Coverage coverage = new Coverage();
     /** Set when a worker thread could not be stopped; the JVM must be recycled. */
     private volatile boolean poisoned;
 
@@ -52,6 +53,10 @@ final class ModeRunner {
             o.reason = "watchdog";
         }
         o.ms = (System.nanoTime() - start) / 1_000_000;
+        if (coverage.enabled()) {
+            String bucket = (req.coverageBucket == null ? "*" : req.coverageBucket) + "|" + mode.wire;
+            o.newProbes = coverage.drain(bucket);
+        }
         return o;
     }
 
