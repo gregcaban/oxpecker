@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/oxpecker.jpg" width="640" alt="Red-billed oxpeckers on a white rhino, Kruger National Park"></p>
+<p align="center"><img src="docs/oxpecker.jpg" width="720" alt="Red-billed oxpeckers on a white rhino, Kruger National Park"></p>
 <p align="center"><sub>Photo: Joel Herzog, Kruger Park, South Africa (<a href="https://commons.wikimedia.org/wiki/File:Kruger_Park,_South_Africa_(Unsplash_1xetOxStk_Y).jpg">Wikimedia Commons</a>, CC0)</sub></p>
 
 # oxpecker
