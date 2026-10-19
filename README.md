@@ -2,7 +2,8 @@
 
 Differential testing of Mozilla Rhino: every generated JavaScript program is run in Rhino's
 **interpreted** mode and its **compiled** (JVM bytecode) mode, the results are canonicalised,
-and any difference is a bug candidate. Design: `~/Downloads/differential-js-fuzzing-brief.md`.
+and any difference is a bug candidate. Design: [`docs/design.md`](docs/design.md) (the original
+brief is `docs/brief-2026-10-18-original.md`).
 
 ```
 Python (Hypothesis)                        Java harness (one JVM, Rhino embedded)
