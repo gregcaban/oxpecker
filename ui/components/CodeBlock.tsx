@@ -1,9 +1,10 @@
-import { tokenizeJs } from "@/lib/highlight";
+import { tokenize, type HlLang } from "@/lib/highlight";
 import { hashHue } from "@/lib/format";
 
 export interface CodeBlockProps {
   code: string;
   className?: string;
+  lang?: HlLang;
   /** 0-based line index -> generator name, used for background tinting. */
   lineGenerator?: (lineIndex: number) => string | undefined;
   /** 0-based line index that should get a left-border "diff" marker. */
@@ -14,11 +15,12 @@ export interface CodeBlockProps {
 export default async function CodeBlock({
   code,
   className,
+  lang = "javascript",
   lineGenerator,
   markedLines,
   showLineNumbers = true,
 }: CodeBlockProps) {
-  const lines = await tokenizeJs(code.replace(/\n$/, ""));
+  const lines = await tokenize(code.replace(/\n$/, ""), lang);
 
   return (
     <pre className={`code-block ${className ?? ""}`}>

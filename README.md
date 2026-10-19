@@ -90,6 +90,7 @@ Checked in under `tests/regressions/` (each must stay detected; `test_harness.py
 - `interpreted-super-increment-string-concat.js` — `super.x++` on a string concatenates (`"a1"`) in the interpreter.
 - `compiled-proxy-extra-has-trap-on-get.js` — `p.x` through a Proxy fires `has` before `get` in compiled mode.
 - `array-find-no-args-aioobe-both-modes.js` — `Array.find()` throws a raw `ArrayIndexOutOfBoundsException` past JS try/catch.
+- From Rhino's legacy Mozilla suite (`oxpecker corpus rhino-mozilla`): `compiled-yield-call-arg-verifyerror.js` (`z((yield 3))` → `VerifyError` in compiled mode), `compiled-relop-arg-stack-underflow.js` (`a(1 < 2)` from inside a function → `Stack underflow` in compiled mode), `nested-array-comprehension-bad-node-195.js` and `let-genexpr-switch-case-null-tokenstream.js` (JS1.7/1.8 comprehension forms crash both code generators), `string-doubling-overflow-negative-array-size.js` (2^31-char string).
 - `tests/seeds/` — the two test262 cases Rhino's own `test262.properties` tags as failing in one mode only, reproduced standalone.
 
 Java types are recorded for every number/string leaf the probes and the completion value see,

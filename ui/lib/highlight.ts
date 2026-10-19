@@ -6,7 +6,7 @@ function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
     highlighterPromise = createHighlighter({
       themes: ["github-light", "github-dark"],
-      langs: ["javascript"],
+      langs: ["javascript", "python"],
     });
   }
   return highlighterPromise;
@@ -18,12 +18,14 @@ export interface HlToken {
   darkColor?: string;
 }
 
-/** Tokenize JS source into per-line arrays of styled tokens (light+dark colors). */
-export async function tokenizeJs(code: string): Promise<HlToken[][]> {
+export type HlLang = "javascript" | "python";
+
+/** Tokenize source into per-line arrays of styled tokens (light+dark colors). */
+export async function tokenize(code: string, lang: HlLang = "javascript"): Promise<HlToken[][]> {
   try {
     const hl = await getHighlighter();
     const result = hl.codeToTokens(code, {
-      lang: "javascript",
+      lang,
       themes: { light: "github-light", dark: "github-dark" },
     });
     return result.tokens.map((line) =>
