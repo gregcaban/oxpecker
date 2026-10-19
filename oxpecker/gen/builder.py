@@ -4,6 +4,9 @@ inserts state probes, and records which generator produced which lines.
 Its method surface deliberately mirrors Fuzzilli's ProgramBuilder (fresh/pick/define_function/
 loops/try) so Fuzzilli's code generators port close to line-for-line, but it produces readable JS
 directly instead of an IR.  All randomness goes through Hypothesis `draw`, so shrinking works.
+
+Design modelled on Fuzzilli's Sources/Fuzzilli/Base/ProgramBuilder.swift (Google LLC, Apache-2.0;
+see THIRD_PARTY_NOTICES.md). No code is copied.
 """
 
 from __future__ import annotations

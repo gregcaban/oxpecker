@@ -1,3 +1,7 @@
+# Ported from Fuzzilli (https://github.com/googleprojectzero/fuzzilli), Sources/Fuzzilli/CodeGen/CodeGenerators.swift,
+# Copyright 2019 Google LLC, licensed under the Apache License, Version 2.0
+# (see docs/licenses/Apache-2.0.txt and THIRD_PARTY_NOTICES.md). Re-implemented in Python against
+# oxpecker's ProgramBuilder and filtered to the language subset Rhino supports.
 """Control-flow generators ported from Fuzzilli's CodeGenerators.swift (family="control-ops").
 
 Dup/Reassignment/ChainedReassignments/ComplexForLoop/Throw/ConditionalThrow/BlockBreak/
