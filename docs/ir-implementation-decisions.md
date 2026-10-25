@@ -319,3 +319,11 @@ Children are re-verified; invalid ones are `reject()`ed. Tests (`tests/test_ir_m
 mutator, children differ from the parent and < 35 % are invalid; each mutator's specific effect;
 lineages verify, lift and parse with node; the median mutation keeps ≥ 90 % of the parent; and a
 shrunk lineage keeps exactly the step a property needs (`["reassign"]`).
+
+**D35. The choice budget is measured by a script, not assumed** (`scripts/choice_budget.py`,
+critique §5). 2026-10-25, 40 seeds, `GenOptions()` defaults: string generator median 4.2 % of
+`BUFFER_SIZE` (max 7.7 %); IR generator (values, operations, compiler-targeted) 4.3 % (max 8.1 %);
+IR lineages up to 1/5/20 steps 4.5/4.7/4.7 % (max 8.7 %). Lineages drawn by Hypothesis itself stay
+short (the "one more step?" boolean continues with probability ½); long lineages only come from the
+fuzz loop's extensions, which is where compaction matters (critique §4). Re-run after each ported
+family.
