@@ -263,3 +263,12 @@ First IR-only findings: 100 programs, all `ok` in both modes; 5 `hard` with the 
 `super`-in-object-literal signature, 2 `hard` that are the known BigInt-in-number-typed-local bug
 (`tests/regressions/compiled-bigint-in-number-typed-local.js`, `var b = -1n` as a function local),
 rediscovered through the declared-variable model (D15).
+
+**D32. A Rhino-parse property test guards the lifter** (`tests/test_ir_rhino_parse.py`, needs the
+harness): generated programs — probed source and plain reproducer, lifted with and without inlining,
+and strict-mode programs run as strict scripts — must not get `syntax` from Rhino's parser. A
+failure is a generator or lifter bug, shrunk to the smallest program the lifter gets wrong. Only the
+interpreted mode runs (the parser is shared; compiled-mode codegen problems are findings for the
+differential test). A sanity test checks the check rejects invalid JavaScript. First run: 900
+programs, all accepted. Motivated by the template-literal brace bug (D24 era) that Rhino caught and
+node, on some programs, did not.
