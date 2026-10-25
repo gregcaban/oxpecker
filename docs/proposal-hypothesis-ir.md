@@ -4,6 +4,8 @@ Status: proposal, 2026-10-25. Not implemented in oxpecker; a working spike lives
 `~/Dev/hypothesis-scratchpad/ir-mutation-spike/` (code, tests, raw results). This document
 captures the design discussion that led to it, the background it relies on, the evidence the
 spike produced, and a migration plan. `docs/design.md` describes the system as built today.
+Implementation choices made on branch `feat/il-strategy` are logged in
+`docs/ir-implementation-decisions.md`.
 
 ## 0. Summary
 
@@ -13,7 +15,8 @@ oxpecker's generators emit JavaScript **strings** directly, and its coverage-gui
 its own two shrinkers. Both are at odds with the intended design:
 
 - generators should be **composable Hypothesis strategies** built from stock strategies,
-- producing an **IR** (FuzzIL-style: instructions over SSA variables) that a lifter turns into JS,
+- producing an **IR** (FuzzIL-style: instructions over temporaries and declared, assignable
+  variables) that a lifter turns into JS,
 - with **structural mutators** (input, operation, code generation, splice — Fuzzilli's) that are
   themselves strategies,
 - and **Hypothesis's shrinker** minimising every finding, including findings reached by many
@@ -162,8 +165,12 @@ choice:  2  2  2  0  True  0  False  3  1  1
   sequence *is* the test case. The example database stores choice sequences; shrinking is editing
   them and replaying.
 - **Misalignment**: if a replayed choice does not fit the draw that asks for it (wrong type, out
-  of range), Hypothesis records `misaligned_at` and uses the **simplest** value for that draw and
-  everything after it. (Not a reinterpretation of the leftovers: that is what `ChoiceRand` does.)
+  of range), Hypothesis records the first such position in `misaligned_at` and uses the
+  **simplest** (index-0) value *for that one draw*; the index still advances, so later draws keep
+  reading the recorded choices at their own positions (`data.py`, `_pop_choice`). So after a
+  structural change the leftover choices *are* re-read under new meanings, with the occasional
+  misfit zeroed. (Corrected 2026-10-25 after the critique; an earlier version said "that draw and
+  everything after it".)
 - **Providers** decide fresh values: `HypothesisProvider` (random with heuristics),
   `BytestringProvider` (decodes a byte buffer — one byte per boolean, `>= 128` is `True`; an
   integer takes `bits_to_bytes(range)` bytes with rejection resampling), and pluggable
@@ -201,10 +208,12 @@ On the same example, `(a + 3) * b`:
 
 - change position 3 from `0` to `1` → `(a - 3) * b`. Local: this choice does not decide structure.
 - change position 2 from `2` (binary) to `0` (literal) → the left side reads one integer
-  (position 3, `0`); the right side then asks for an integer in `0..2` and finds `True` —
-  misaligned — so it and everything after get the simplest values: `0 * 0`. The untouched `b`
-  is gone. One edit to a structural choice discards the parent's tail. (With `ChoiceRand`'s
-  folding the result is `0 * a`: different garbage, same loss.)
+  (position 3, `0`); the right side then re-reads positions 4 and 5 as its kind and its literal:
+  position 4 (`True`) does not fit an integer in `0..2`, is misaligned and replaced by index 0
+  (`literal`), and position 5 (`0`) happens to be a valid literal — `0 * 0`; positions 6–9 are
+  never read. The untouched `b` is gone. One edit to a structural choice shifts the meaning of
+  the parent's tail. (With `ChoiceRand`'s folding the result is `0 * a`: different garbage, same
+  loss.)
 - replace `(a + 3)` with `b - (a * 7)` from another corpus program: a blind mutator would have to
   overwrite exactly positions 2–7 with exactly the right values. It happens only by accident.
 
@@ -248,9 +257,28 @@ perturbation — the reason Fuzzilli's corpus compounds.
 ### 3.1 IR
 
 FuzzIL-style: a program is a tuple of `Instr(op, inputs, outputs, inner)` over integer variable
-ids, SSA (each variable defined once). Blocks are matched `Begin…`/`End…` instructions;
-`inner` holds variables visible only inside the block (parameters). Operations are small frozen
-dataclasses (`LoadInt(value)`, `BinOp(op)`, `BeginFunction(arity)`, `Call()`, `Return()`, …).
+ids, each **defined** exactly once. Blocks are matched `Begin…`/`End…` instructions; `inner` holds
+variables visible only inside the block (parameters, loop counter, catch variable). Operations are
+small frozen dataclasses (`LoadLiteral(type, spelling)`, `Binary(op)`, `BeginFunction(arity)`,
+`CallFunction()`, `Return()`, …).
+
+**Not SSA.** *(Revised 2026-10-25 after the critique, §2: the first version said "SSA, each
+variable defined once", which cannot express the programs behind most of this project's
+compiled-mode bugs.)* There are two classes of variables, as in FuzzIL:
+
+- **temporaries** — expression outputs: defined once, never assigned; the lifter may inline them;
+- **declared variables** — `DeclareVar(kind)` with kind `var | let | const`, function parameters,
+  catch variables, function names: they have a **storage kind** (top level, function local,
+  block, parameter; `analysis.storage`) and are the only assignable class, through `Reassign`
+  (`x = y`), `CompoundAssign` (`x += y`, FuzzIL's Update) and `Update` (`x++`, `--x`). `const` is
+  never assigned; loop counters are never assigned.
+
+That is what Rhino's optimizer specialises: mutable function locals, by the sequence of types
+assigned to them, on a path that depends on the storage kind and on whether the function needs an
+activation (`arguments`, `eval`, `with`; `analysis.activation`). `var n = 1n; n++`
+(`tests/regressions/compiled-bigint-in-number-typed-local.js`) is expressible; so is a mutator
+that reassigns a declared variable with a value of a different type, or toggles a function's
+activation.
 
 Flat IR rather than an AST, because the mutators — the point of the exercise — get simpler:
 
@@ -264,9 +292,15 @@ Flat IR rather than an AST, because the mutators — the point of the exercise �
 | readable JS | free | needs an inlining lifter |
 | JS shape | arbitrary nesting | temporaries unless inlined |
 
-The last row is a feature for Rhino: its optimizer type-specialises locals, so `let v3 = v0 + v2`
-and an inlined `(v0 + 3)` take different compiled-mode paths. The lifter's **inlining policy**
-(which single-use values to inline) becomes a knob — even a drawn choice — that reaches both.
+The last row is a feature for Rhino: its optimizer type-specialises locals, so `var v3 = v0 + v2`
+and an inlined `(v0 + 3)` take different compiled-mode paths. **The lifter is part of the test
+case** (critique §3): which temporaries are inlined is decided by a `keep` flag on each
+instruction, drawn by the builder and shrinking towards "inline", so lifting is a pure function of
+the IR — the reproducer is the program that ran — and shrunk reproducers are the most readable
+form unless the bug needs a kept statement. Folding a temporary into its use is allowed only when
+it cannot reorder anything observable: the use is the next statement and the temporary sits in its
+first-evaluated operand, or the expression's inputs are all primitive-typed (no user code can run).
+Declared variables are never inlined. Details: `docs/ir-implementation-decisions.md` D11, D16.
 
 Probes (`__probe`), `// [generator]` comments and the `strict` prologue become lifter concerns.
 Generator attribution for the inspector UI comes from instruction provenance instead of
@@ -274,15 +308,22 @@ Generator attribution for the inspector UI comes from instruction provenance ins
 
 ### 3.2 Analysis, types, invariants
 
-Types are **never stored** on instructions. `analyse(prog)` recomputes scopes, definitions and
-types from scratch (iterating to a fixpoint, because call results depend on function return
-types, which can depend on calls). `verify(prog)` checks the invariants every mutator must keep:
+Types are **never stored** on instructions. `analyse(prog)` recomputes scopes, definitions,
+storage and types from scratch. Temporaries have one type each; declared variables are typed
+**flow-sensitively** — assignments are strong updates, branches join at their end, loop bodies are
+iterated to a fixpoint, and a variable assigned inside a nested function falls back to the join
+over the program (any call may change it). Requirement checks and mutators use the type **at the
+point of use** (`type_at(i, v)`). The walk is iterated to a fixpoint because call results depend
+on return types, which can depend on calls. `verify(prog)` checks the invariants every mutator
+must keep:
 
-1. every input is defined before its use and visible there (scopes, closed blocks);
-2. blocks are balanced; `Return` only inside a function;
-3. each input slot's type requirement holds *under freshly inferred types* (only functions can be
-   called; no arithmetic on functions; in oxpecker: constructors for `new`, objects for property
-   access, …).
+1. every input is defined before its use and visible there (scopes, closed blocks); each id is
+   defined once;
+2. blocks are balanced and well-formed; `Return` only inside a function; a `try` has a handler;
+3. only declared, non-`const` variables are assigned, never a loop counter;
+4. each input slot's type requirement holds *under freshly inferred types at that point* (only a
+   possible function is called or constructed; no property access on a definitely `null` /
+   `undefined` value; everything merely likely to throw is allowed — both modes must throw alike).
 
 Stale types are therefore impossible by construction; the cost is one analysis per mutation step.
 The case this guards against is real (spike test `test_types_are_recomputed_after_a_mutation`):
