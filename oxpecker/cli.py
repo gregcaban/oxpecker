@@ -2,6 +2,7 @@
 
   oxpecker gen -n 50 -o out/           write 50 generated programs (case-0001.js ...) for eyeballing
   oxpecker gen -n 50 -o out/ --run     ... and run them through the harness, writing verdicts
+  oxpecker gen -n 50 -o out/ --ir      ... from the IR generators (oxpecker/ir; families being ported)
   oxpecker run out/ tests/regressions/ run existing .js files through the harness
   oxpecker list                        generators and templates
   oxpecker corpus test262|rhino-jstests|rhino-mozilla [--filter PREFIX] [--limit N]   replay a corpus
@@ -25,8 +26,10 @@ from .gen.strategies import Program, programs
 
 
 # ----------------------------------------------------------------------------- generation
-def generate_programs(opts: GenOptions, count: int, seed: int) -> list[Program]:
-    """Draws `count` programs with Hypothesis (generate phase only, deterministic for a seed)."""
+def generate_programs(opts: GenOptions, count: int, seed: int, ir: bool = False) -> list[Program]:
+    """Draws `count` programs with Hypothesis (generate phase only, deterministic for a seed);
+    `ir` selects the IR generators (oxpecker/ir) instead of the string builder."""
+    strategy = _ir_programs if ir else programs
     out: list[Program] = []
     attempts = 0
     while len(out) < count and attempts < 5:
@@ -36,7 +39,7 @@ def generate_programs(opts: GenOptions, count: int, seed: int) -> list[Program]:
         @hyp_seed(seed + attempts - 1)
         @settings(max_examples=want, phases=[Phase.generate], database=None, deadline=None,
                   suppress_health_check=list(HealthCheck), derandomize=False)
-        @given(programs(opts))
+        @given(strategy(opts))
         def collect(p: Program) -> None:
             if len(out) < count:
                 out.append(p)
@@ -56,18 +59,32 @@ def options_from_args(args: argparse.Namespace) -> GenOptions:
     )
 
 
+def _registry(ir: bool):
+    if ir:
+        from .ir import registry as reg
+    else:
+        from .gen import registry as reg
+    reg.load_all()
+    return reg
+
+
+def _ir_programs(opts: GenOptions):
+    from .ir.strategies import programs as ir_programs
+    return ir_programs(opts)
+
+
 def cmd_gen(args: argparse.Namespace) -> int:
-    load_all()
+    reg = _registry(args.ir)
     opts = options_from_args(args)
-    bad = [g for g in (args.generator or []) if g not in GENERATORS]
-    bad += [t for t in (args.template or []) if t not in TEMPLATES]
+    bad = [g for g in (args.generator or []) if g not in reg.GENERATORS]
+    bad += [t for t in (args.template or []) if t not in reg.TEMPLATES]
     if bad:
         print(f"unknown generator/template: {', '.join(bad)} (see `oxpecker list`)", file=sys.stderr)
         return 2
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    progs = generate_programs(opts, args.count, args.seed)
+    progs = generate_programs(opts, args.count, args.seed, ir=args.ir)
     index: list[dict[str, Any]] = []
     for i, p in enumerate(progs, 1):
         case_id = f"case-{i:04d}"
@@ -80,10 +97,10 @@ def cmd_gen(args: argparse.Namespace) -> int:
         (out_dir / f"{case_id}.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         index.append({"id": case_id, "template": p.template, "stats": p.stats,
                       "generators": sorted(p.generator_usage)})
-    (out_dir / "catalogue.json").write_text(json.dumps(catalogue(), indent=2), encoding="utf-8")
+    (out_dir / "catalogue.json").write_text(json.dumps(reg.catalogue(), indent=2), encoding="utf-8")
     elapsed = time.time() - t0
     print(f"wrote {len(progs)} programs to {out_dir}/ in {elapsed:.1f}s "
-          f"({_usage_summary(progs)})")
+          f"({_usage_summary(progs, reg.GENERATORS)})")
 
     if args.run:
         results = run_paths([out_dir], args, index_by_id={e['id']: e for e in index})
@@ -93,11 +110,11 @@ def cmd_gen(args: argparse.Namespace) -> int:
     return 0
 
 
-def _usage_summary(progs: list[Program]) -> str:
+def _usage_summary(progs: list[Program], generators=GENERATORS) -> str:
     usage: Counter[str] = Counter()
     for p in progs:
         usage.update(p.generator_usage)
-    never = [g for g in GENERATORS if g not in usage]
+    never = [g for g in generators if g not in usage]
     s = f"{len(usage)} distinct generators used"
     if never:
         s += f"; never fired: {', '.join(never[:8])}{'…' if len(never) > 8 else ''}"
@@ -392,6 +409,7 @@ def _add_gen_options(p: argparse.ArgumentParser) -> None:
                    help="enable partial-support features: let, generators, for-of, destructuring, spread, continuations")
     p.add_argument("--generator", action="append", metavar="NAME", help="only these generators (repeatable)")
     p.add_argument("--template", action="append", metavar="NAME", help="only these templates (repeatable)")
+    p.add_argument("--ir", action="store_true", help="use the IR generators (oxpecker/ir) instead of the string builder")
 
 
 def _add_run_options(p: argparse.ArgumentParser) -> None:

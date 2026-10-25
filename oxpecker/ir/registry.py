@@ -83,3 +83,8 @@ def weighted(gens: list[Generator]) -> list[Generator]:
     """Each generator repeated `weight` times, in a fixed order: an index into this list means the
     same generator in every context (proposal §3.8 rule 3)."""
     return [g for g in gens for _ in range(g.weight)]
+
+
+def catalogue() -> list[dict[str, Any]]:
+    load_all()
+    return [g.catalogue_entry() for g in GENERATORS.values()] + [t.catalogue_entry() for t in TEMPLATES.values()]
