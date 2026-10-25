@@ -94,6 +94,12 @@ variables, D15):
   expression may move past other folded pure expressions, so `[n1, n1 | 0, n1 >>> 0]` folds
   completely; fold decisions are computed from the last instruction backwards. `.length` of a
   string or array is pure: an own property, no getter can run.)*
+  *(And: several expressions directly before a use fold into it when they sit at increasing operand
+  slots — inside the use they are evaluated in the same order as the statements were:
+  `[f1(x), f2(x)]`, `p1 * 2 + (p2 | 0)`. The reverse — a call that comes first in the program but
+  sits in a later slot than a property read — is refused: it would read the property before the
+  call. Both directions are tested: `test_folding_keeps_evaluation_order`,
+  `test_folding_never_reorders_effects`.)*
 Alternative rejected: Fuzzilli-style aggressive inlining with an effect analysis — more code, and
 the conservative rule already gives nested expressions for the common numeric cases.
 
@@ -136,6 +142,9 @@ that ran (critique §3.1). Alternative considered: the critique's single policy 
 rejected because the choice budget is not the constraint (critique §5: fresh programs use ≤ 8 % of
 `BUFFER_SIZE`) and a per-instruction flag can be flipped by the operation mutator at one site.
 `keep` is part of `signature()`.
+*(Refined: `keep` is tri-state. `None` = undecided, drawn by `lifting_choices`; `True`/`False` =
+pinned by a generator. Fixed-form constants (`b.const`, the `0` in `x | 0`) pin `False`; the
+"same body twice" generators pin both copies (`Builder.pin`) so they lift identically.)*
 
 **D17. Flow-sensitive types for declared variables.** A structured walk: assignments are strong
 updates; if/else and try/catch(/finally) join their branches (a catch is entered from anywhere in
