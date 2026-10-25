@@ -69,16 +69,25 @@ def test_unused_literal_stays_a_variable_and_keep_stops_inlining():
     assert "var i1 = 5;" in out and "var i2 = 6;" in out and "i2 + i2" in out
 
 
-def test_fold_only_into_the_next_statement_and_never_reorder_effects():
-    # v2 = o.p is used by the next statement but not in its first-evaluated slot, and o's type is
-    # unknown (a getter may run): it must not be folded past the call into `f() + o.p`.
+def _call_then_read(slots):
+    """o.p is read after f() is called; `slots` orders them as operands of the `+` that uses both."""
     prog = (I(LoadBuiltin("o", T.UNKNOWN), (), (0,), keep=True), I(LoadBuiltin("f", T.FUNCTION), (), (1,), keep=True),
-            I(CallFunction(), (1,), (2,)), I(GetProperty("p"), (0,), (3,)), I(Binary("+"), (2, 3), (4,)),
+            I(CallFunction(), (1,), (2,)), I(GetProperty("p"), (0,), (3,)), I(Binary("+"), slots, (4,)),
             I(DeclareVar(), (4,), (5,)))
-    out = body(prog)
-    assert "var x2 = f1();" in out          # the call stays a statement, before the read ...
-    assert "x2 + x1.p" in out               # ... and the read may move past `x2`: a temporary, it cannot change
-    assert "f1() + " not in out             # never: the call folded past the read
+    return body(prog)
+
+
+def test_folding_keeps_evaluation_order():
+    # f() then o.p, used as `f() + o.p`: both fold, in the same order as the statements.
+    assert "var x2 = f1() + x1.p;" in _call_then_read((2, 3))
+
+
+def test_folding_never_reorders_effects():
+    # f() then o.p, used as `o.p + f()`: folding both would read o.p before calling f (a getter, or
+    # f itself, could tell). The read may fold (it is next to its use); the call must stay first.
+    out = _call_then_read((3, 2))
+    assert "var x2 = f1();" in out
+    assert "x1.p + x2" in out and "x1.p + f1()" not in out
 
 
 def test_property_read_is_never_folded_into_a_callee():

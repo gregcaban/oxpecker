@@ -258,7 +258,8 @@ class Instr:
     inputs: tuple[int, ...] = ()
     outputs: tuple[int, ...] = ()     # visible after the instruction (BeginFunction: the function)
     inner: tuple[int, ...] = ()       # visible only inside the block it opens (parameters, counter, e)
-    keep: bool = False                # lifting: keep as its own statement, never inline/fold (D16)
+    keep: bool | None = None          # lifting: keep as its own statement (True), may inline (False);
+                                      # None = undecided, drawn by `lifting_choices` (D16)
     hint: str | None = None           # lifting: a role name for the output (`acc`, `ctor`), else by type
     gen: str | None = None            # provenance: the generator that emitted it (comments, inspector)
     origin: int = 0                   # provenance: which generator invocation

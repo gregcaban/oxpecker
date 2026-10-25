@@ -130,17 +130,19 @@ class Builder:
         self.next_id += 1
         return self.next_id - 1
 
-    def _append(self, op: Op, inputs=(), outputs=(), inner=(), *, keep: bool = False, hint: str | None = None) -> None:
+    def _append(self, op: Op, inputs=(), outputs=(), inner=(), *, keep: bool | None = None,
+                hint: str | None = None) -> None:
         self.instrs.append(Instr(op, tuple(inputs), tuple(outputs), tuple(inner), keep, hint,
                                  self.current_gen, self.origin))
 
-    def emit(self, op: Op, inputs: Sequence[int] = (), t: T | None = None, *, keep: bool = False,
+    def emit(self, op: Op, inputs: Sequence[int] = (), t: T | None = None, *, keep: bool | None = None,
              hint: str | None = None) -> int | None:
         """Appends an instruction; returns its output (a temporary) if it has one.
 
         `t` states a more precise output type than the generic rule knows (`new Map()` is a MAP);
-        it only steers generation -- analysis re-derives types on its own. `keep=True` pins a value
-        as its own statement (normally `lifting_choices` draws `keep` afterwards, decision D16)."""
+        it only steers generation -- analysis re-derives types on its own. `keep` pins the lifting
+        choice (True: own statement, False: may be inlined); left None, `lifting_choices` draws it
+        after generation (decision D16)."""
         inputs = tuple(inputs)
         out = self._result_type(op, inputs)
         if out is not None and t is not None:
@@ -321,6 +323,14 @@ class Builder:
                 if on_error:
                     on_error(e)
 
+    def pin(self, start: int, end: int | None = None, keep: bool = False) -> None:
+        """Pins the undecided lifting choices of instructions [start, end) -- e.g. so the two copies
+        of "the same body twice" lift identically."""
+        for k in range(start, len(self.instrs) if end is None else end):
+            ins = self.instrs[k]
+            if ins.keep is None and ins.outputs:
+                self.instrs[k] = ins.replace(keep=keep)
+
     # ------------------------------------------------------------ replay
     def replay(self, instrs: Sequence[Instr], rename: dict[int, int]) -> dict[int, int]:
         """Re-emits `instrs` (blocks included, balanced) with fresh ids for everything they define
@@ -483,14 +493,13 @@ def nested(draw, b: Builder, n: int | None = None):
 
 @st.composite
 def lifting_choices(draw, prog: Program, start: int = 0) -> Program:
-    """Draws the `keep` flag (decision D16) of every value-producing instruction from `start` on,
-    except those a generator pinned: one `maybe(0.2)` each, in program order, shrinking towards
-    False -- the most-inlined, most readable form. A separate, explicit step after generation, so
-    generation itself stays purely structural."""
+    """Draws the undecided `keep` flags (decision D16) of the value-producing instructions from
+    `start` on -- generators may have pinned some -- one `maybe(0.2)` each, in program order,
+    shrinking towards False: the most-inlined, most readable form. A separate, explicit step after
+    generation, so generation itself stays purely structural."""
     out = list(prog)
     for i in range(start, len(out)):
         ins = out[i]
-        if ins.outputs and not ins.keep and not isinstance(ins.op, (DeclareVar, BeginFunction)):
-            if draw(maybe(0.2)):
-                out[i] = ins.replace(keep=True)
+        if ins.outputs and ins.keep is None and not isinstance(ins.op, (DeclareVar, BeginFunction)):
+            out[i] = ins.replace(keep=draw(maybe(0.2)))
     return tuple(out)

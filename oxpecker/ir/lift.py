@@ -217,6 +217,11 @@ class _Lifter:
                                                                        else set())
                           for x in ins.inputs)
 
+    def _folds_into(self, j: int, u: int, *, after: int) -> bool:
+        outs = self.prog[j].outputs
+        return (len(outs) == 1 and self.an.users.get(outs[0]) == [u]
+                and self.prog[u].inputs.index(outs[0]) > after)
+
     def _inline_expr(self, i: int) -> bool:
         """Fold an expression into its single use if that use is the next emitted statement and
         moving it cannot reorder anything observable (module docstring, decision D11). Called from
@@ -232,16 +237,19 @@ class _Lifter:
             return False
         pure = self._pure(i)
         (u,) = self.an.users[v]
+        user = self.prog[u]
+        slot = user.inputs.index(v)
         j = i + 1
         # Literals spelled inline and dead code emit nothing; a pure expression may also move past
-        # other folded pure expressions (neither can affect the other).
+        # other folded pure expressions (neither can affect the other); and any expression may move
+        # past expressions folded into the SAME use at a LATER operand slot -- inside the use they
+        # are evaluated after it, as they were before (`[f(x), g(x)]`, `a * 2 + (b | 0)`).
         while j < u and (j in self.dead or (self.fold.get(j) and (
-                isinstance(self.prog[j].op, LoadLiteral) or (pure and self._pure(j))))):
+                isinstance(self.prog[j].op, LoadLiteral) or (pure and self._pure(j))
+                or self._folds_into(j, u, after=slot)))):
             j += 1
         if j != u:
             return False
-        user = self.prog[j]
-        slot = user.inputs.index(v)
         if isinstance(op, (GetProperty, GetElement)) and isinstance(user.op, CallFunction) and slot == 0:
             return False
         if pure:
