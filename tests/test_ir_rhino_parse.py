@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from hypothesis import HealthCheck, given, note, settings
+from hypothesis import HealthCheck, currently_in_test_context, given, note, settings
 from hypothesis.database import DirectoryBasedExampleDatabase
 
 from oxpecker.gen.builder import GenOptions
@@ -30,7 +30,8 @@ PARSE = settings(max_examples=EXAMPLES, deadline=None,
 def assert_parses(harness, source: str, *, strict: bool = False) -> None:
     run = harness.run(source, modes=("interpreted",), strict=strict, seed=1)
     o = run.results["interpreted"]
-    note(source)
+    if currently_in_test_context():
+        note(source)
     assert o.status != "syntax", f"Rhino rejects the lifted program: {o.thrown}\n{source}"
 
 
@@ -57,7 +58,9 @@ def test_strict_programs_parse_as_strict_scripts(harness, prog: Program):
 def test_the_check_rejects_invalid_javascript(harness):
     """The property is only as good as its check: a syntax error must fail it."""
     import pytest
-    for bad in ("var x = ;", "{}.m();", "function () {}"):
+    # (Not `function () {}`: Rhino accepts an anonymous function declaration statement, which node
+    # and the spec reject -- a Rhino leniency, noted 2026-10-25.)
+    for bad in ("var x = ;", "{}.m();", "var 1x = 2;"):
         with pytest.raises(AssertionError, match="Rhino rejects"):
             assert_parses(harness, bad)
     assert_parses(harness, "({}).m;")
