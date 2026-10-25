@@ -128,8 +128,8 @@ each variable defined once" was wrong for this project: the typed-local bugs in
 `compiled-increment-int32-overflow.js`, ...) need `var n = 1n; n++`. Proposal §3.1–3.2 updated.
 
 **D16. One `keep` flag per instruction replaces `LoadLiteral.inline`.** `keep` = "lift as its own
-statement; never inline or fold". The builder draws it for every value-producing instruction
-(`maybe(0.2)`), shrinking towards `False`, so a shrunk reproducer is the most-inlined, most
+statement; never inline or fold". It is drawn for every value-producing instruction (`maybe(0.2)`)
+by `lifting_choices`, an explicit step after generation (D24), shrinking towards `False`, so a shrunk reproducer is the most-inlined, most
 readable form unless the bug needs the statement — then the kept statement is the point of
 interest. Lifting is a pure function of the IR including `keep`, so the reproducer is the program
 that ran (critique §3.1). Alternative considered: the critique's single policy index per program;
@@ -166,12 +166,38 @@ Names stay a pure function of the IR, so they are stable under shrinking.
 `Update` takes `value=False` for `a.push(x);` / `x++;`: results nothing captured before do not
 become probed variables, matching today's programs.
 
-**D22. The §3.8 rules are in the builder, not left to generator authors.** `choice()` is for
-constant pools (`sampled_from`); `pick()` for context-dependent ones (an integer index);
-`visible()` is most-recent-first; `maybe()` shrinks to `False`; `statement_list()` and
-`repeat(fn, lo, hi)` are `st.lists` draws with one span per element; every generator invocation is
-its own composite (its own span); `replay()` re-emits straight-line code ("the same body twice").
+**D22. The §3.8 rules are encoded in the shared strategies, not left to generator authors.**
+`st.sampled_from` for constant pools only; `pick(xs)` for context-dependent ones (an integer
+index); `Builder.visible()` is most-recent-first; `maybe()` shrinks to `False`; `statements()` is
+an `st.lists` draw with one span per statement, and generators use `st.lists` for their own
+repetitions; every generator invocation is its own composite (its own span); `Builder.replay()`
+re-emits code, blocks included ("the same body twice").
 
 **D23. Swarm selection is one "excluded" boolean per generator, in a fixed order.** Shrinking
 (towards `False`) re-enables everything, so the pool — and the meaning of every generator index —
 returns to the full fixed weighted list.
+
+**D24. Generators, templates and value makers are plain Hypothesis strategies; "generator" is only
+a name and metadata.** *(User question, 2026-10-25: "can those just be strategies? does it make
+sense to keep the concept of a generator?")* A generator is an `@st.composite` function
+`(draw, b)` over a `Builder`, every choice an explicit `draw(...)`; it can be drawn by other
+strategies and tested with `@given` on its own. `@generator(name, family, weight, toggle,
+sloppy_only, output)` only *registers*: it records the metadata and wraps the strategy in one more
+`st.composite` that attributes what it emits to the name. The concept is kept because the pool,
+swarm selection, weights, toggles, strict compatibility, `--generator` filters, provenance comments,
+`generator_usage` and the inspector catalogue all need named units (Fuzzilli's CodeGenerators are
+the same). Dropped: the builder-callback form `fn(b)` with hidden draws (`b.choice`, `b.maybe`,
+...) and the `inputs=` declaration (strategies draw their own inputs). The builder never draws;
+the lifting flags are drawn after generation (`lifting_choices`, D16). A first version used a
+custom `@strategy` decorator to let the builder draw `keep` behind the generator's back; removed
+for the same reason ("are you inventing a new decorator?").
+
+**D25. Value generators as statements declare; value makers make temporaries.** `number`, `int32`,
+... used as statements emit `var n1 = <literal>;` (`DeclareVar`): a variable later statements read
+and assign, as today. The same values made inside an expression (`pick_or_make`) are temporary
+literals, spelled at their uses unless kept. Found because a first statement that only made a
+temporary vanished from the program (its value was inlined into a later use), leaving an empty probe.
+
+**D26. The catalogue finds generator sources itself.** `inspect.getsource` cannot see through
+`st.composite` (its `__wrapped__` is a generated proxy), so `registry.catalogue()` locates the
+`def` by name in the module, decorators included.

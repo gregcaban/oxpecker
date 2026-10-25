@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 from ..gen.builder import GenOptions
 from ..gen.strategies import Program, options_dict
 from .analysis import verify
-from .builder import Builder
+from .builder import Builder, lifting_choices
 from .lift import lift
 from .ops import Program as IRProgram
 from .registry import available_generators, available_templates, weighted
@@ -34,13 +34,12 @@ def ir_programs(draw, opts: GenOptions = GenOptions()) -> tuple[IRProgram, dict]
         subset = gens
     tpl = draw(st.sampled_from(tpls))
     b = Builder(opts, weighted(subset))
-    with b.drawing(draw):
-        b.current_gen = tpl.name
-        tpl.fn(b)
-        b.current_gen = None
-    prog = b.program()
+    draw(tpl.fn(b))
+    # Lifting choices are drawn after generation, explicitly (decision D16).
+    prog = draw(lifting_choices(b.program()))
     verify(prog)                     # a failure is a generator bug, never filtered
-    meta = {"template": tpl.name, "enabled": sorted(g.name for g in subset), "usage": dict(b.gen_usage)}
+    usage = {g: n for g, n in b.gen_usage.items() if g != tpl.name}
+    meta = {"template": tpl.name, "enabled": sorted(g.name for g in subset), "usage": usage}
     return prog, meta
 
 

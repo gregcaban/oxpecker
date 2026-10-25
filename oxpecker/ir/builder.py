@@ -1,19 +1,27 @@
-"""What generators see while they run: the instructions being built, the scope and type state at
-the insertion point, and draw helpers that follow the rules for shrink-friendly strategies
-(docs/proposal-hypothesis-ir.md §3.8):
+"""The context generators build into, and the small strategies they compose.
 
-- `choice(pool)` is for CONSTANT pools only (literal spellings, operators): `sampled_from`.
-- `pick(xs)` is for anything whose size depends on context (visible variables, candidates): an
-  integer index, because a one-element `sampled_from` records no choice and misaligns the rest.
-- visible variables are listed most recent first, so shrinking pulls references towards local
-  values and leaves older code dead (and deletable).
-- `maybe(p)` shrinks towards False: optional things disappear when shrunk.
-- statement lists are `st.lists` over a per-statement strategy, never "draw a count, then loop".
-- every generator invocation is its own `@st.composite` draw, so it gets its own span: the
-  shrinker can delete or simplify one generator's output as a unit.
+Generators, templates, value makers and mutators are all Hypothesis strategies: `@st.composite`
+functions `(draw, b, ...)` over a `Builder`. Every choice a generator makes is an explicit
+`draw(...)`; the `Builder` holds only what is not a choice -- the instructions being built, the
+scope and type state at the insertion point -- and the emission methods (`b.binary`,
+`b.declare`, `with b.function(...)`). It never draws. The lifting flags (`keep`, decision D16) are
+drawn separately, after generation, by `lifting_choices`.
+
+The strategies here encode the rules for shrink-friendly strategies (proposal §3.8):
+- `st.sampled_from` for CONSTANT pools (operators, literal spellings) only; `pick(xs)` for
+  anything whose size depends on context -- an integer index, because a one-element
+  `sampled_from` records no choice and misaligns the rest;
+- `Builder.visible()` lists variables most recent first, so shrinking pulls references towards
+  local values and leaves older code dead (and deletable);
+- `maybe(p)` shrinks towards False: optional things disappear when shrunk;
+- statement lists are `st.lists` over a per-statement strategy (`statements`), never "draw a
+  count, then loop"; generators use `st.lists` the same way for their own repetitions;
+- the generator pool is a FIXED weighted list (`one_statement` indexes it), so a generator index
+  means the same generator in every context;
+- every generator invocation is its own composite draw, so it gets its own span.
 
 A `Builder` either starts empty (a fresh program) or `at(prog, pos)` -- the context before
-`prog[pos]` -- for the code-generation mutator. Both use the same generators.
+`prog[pos]` -- for the code-generation mutator. Both use the same strategies.
 """
 
 from __future__ import annotations
@@ -61,7 +69,6 @@ class Builder:
         self.origin = origin
         self.origins = origin                        # last origin handed out
         self.gen_usage: dict[str, int] = {}
-        self._draws: list[Any] = []
 
     @classmethod
     def at(cls, prog: Program, pos: int, opts: GenOptions, pool: Sequence[Any] = ()) -> "Builder":
@@ -77,32 +84,18 @@ class Builder:
     def program(self) -> Program:
         return tuple(self.instrs)
 
-    # ------------------------------------------------------------ drawing
-    def draw(self, strategy: st.SearchStrategy) -> Any:
-        return self._draws[-1](strategy)
-
+    # ------------------------------------------------------------ provenance
     @contextmanager
-    def drawing(self, draw) -> Iterator[None]:
-        self._draws.append(draw)
+    def provenance(self, gen: str) -> Iterator[None]:
+        """Instructions emitted inside are attributed to `gen`; each invocation is its own origin."""
+        saved = self.current_gen, self.origin
+        self.origins += 1
+        self.current_gen, self.origin = gen, self.origins
+        self.gen_usage[gen] = self.gen_usage.get(gen, 0) + 1
         try:
             yield
         finally:
-            self._draws.pop()
-
-    def choice(self, pool: Sequence[Any]) -> Any:
-        """From a CONSTANT pool (operators, literal spellings)."""
-        return self.draw(st.sampled_from(tuple(pool)))
-
-    def pick(self, xs: Sequence[Any]) -> Any:
-        """From a context-dependent list: an index draw, whatever the list's size."""
-        return xs[self.draw(st.integers(0, len(xs) - 1))]
-
-    def int(self, lo: int, hi: int) -> int:
-        return self.draw(st.integers(lo, hi))
-
-    def maybe(self, p: float = 0.5) -> bool:
-        """True with probability ~p; shrinks towards False."""
-        return self.draw(st.integers(0, 99)) >= 100 - round(p * 100)
+            self.current_gen, self.origin = saved
 
     # ------------------------------------------------------------ variables
     def visible(self, want: T | None = None) -> list[int]:
@@ -118,27 +111,6 @@ class Builder:
     def type_of(self, v: int) -> T:
         return self.types.get(v, T.UNKNOWN)
 
-    def pick_or_make(self, want: T | None) -> int:
-        """A visible variable of a fitting type, or (sometimes, or when there is none) a new value."""
-        make = self.maybe(0.25)
-        pool = self.visible(want if want is not T.UNKNOWN else None)
-        if make or not pool:
-            return self.make(want or T.UNKNOWN)
-        return self.pick(pool)
-
-    def make(self, t: T) -> int:
-        maker = registry.VALUE_MAKERS.get(t) or registry.VALUE_MAKERS[T.UNKNOWN]
-        return maker(self)
-
-    def target(self, want: T | None) -> int:
-        """A declared variable to assign to (fitting type, not const, not a loop counter), or a
-        newly declared one initialised with a made value."""
-        make = self.maybe(0.25)
-        pool = self.assignable(want if want is not T.UNKNOWN else None)
-        if make or not pool:
-            return self.declare(self.make(want or T.UNKNOWN))
-        return self.pick(pool)
-
     def declare(self, init: int, kind: str = "var", hint: str | None = None) -> int:
         """`kind name = init;` -- a declared, assignable variable (decision D15)."""
         v = self._new()
@@ -152,8 +124,6 @@ class Builder:
         """A literal that is part of a fixed form (the `0` in `x | 0`): always spelled inline."""
         return self.emit(LoadLiteral(t, text), keep=False)
 
-    def literal(self, t: T, pool: Sequence[str]) -> int:
-        return self.emit(LoadLiteral(t, self.choice(pool)))
 
     # ------------------------------------------------------------ emission
     def _new(self) -> int:
@@ -164,14 +134,13 @@ class Builder:
         self.instrs.append(Instr(op, tuple(inputs), tuple(outputs), tuple(inner), keep, hint,
                                  self.current_gen, self.origin))
 
-    def emit(self, op: Op, inputs: Sequence[int] = (), t: T | None = None, *, keep: bool | None = None,
+    def emit(self, op: Op, inputs: Sequence[int] = (), t: T | None = None, *, keep: bool = False,
              hint: str | None = None) -> int | None:
         """Appends an instruction; returns its output (a temporary) if it has one.
 
         `t` states a more precise output type than the generic rule knows (`new Map()` is a MAP);
-        it only steers generation -- analysis re-derives types on its own. `keep` (drawn when not
-        given, shrinking towards False = inline) says whether the lifter must keep the value as its
-        own `var` statement instead of folding it into its use (decision D16)."""
+        it only steers generation -- analysis re-derives types on its own. `keep=True` pins a value
+        as its own statement (normally `lifting_choices` draws `keep` afterwards, decision D16)."""
         inputs = tuple(inputs)
         out = self._result_type(op, inputs)
         if out is not None and t is not None:
@@ -180,8 +149,6 @@ class Builder:
             self._append(op, inputs)
             self._effects(op, inputs)
             return None
-        if keep is None:
-            keep = self.maybe(0.2)
         v = self._new()
         self.types[v] = out
         self._append(op, inputs, (v,), keep=keep, hint=hint)
@@ -354,53 +321,51 @@ class Builder:
                 if on_error:
                     on_error(e)
 
-    # ------------------------------------------------------------ statements
-    def run(self, gen: Any) -> None:
-        """Runs one registered generator, picking its declared inputs. Every invocation gets its
-        own origin (provenance), nested ones included."""
-        saved = self.current_gen, self.origin
-        self.origins += 1
-        self.current_gen, self.origin = gen.name, self.origins
-        self.gen_usage[gen.name] = self.gen_usage.get(gen.name, 0) + 1
-        try:
-            args = [self.pick_or_make(t) for t in gen.inputs]
-            gen.fn(self, *args)
-        finally:
-            self.current_gen, self.origin = saved
-
-    def repeat(self, fn, lo: int, hi: int) -> list[Any]:
-        """Calls `fn()` lo..hi times as ONE `st.lists` draw, each call its own span, so the shrinker
-        can delete any single repetition (rule 1). Use instead of `for _ in range(b.int(lo, hi))`."""
-        return self.draw(st.lists(_call(self, fn), min_size=lo, max_size=hi))
-
+    # ------------------------------------------------------------ replay
     def replay(self, instrs: Sequence[Instr], rename: dict[int, int]) -> dict[int, int]:
-        """Re-emits straight-line instructions (no blocks) with fresh ids for what they define and
-        `rename` applied to what they use -- "the same body twice". Returns the full renaming."""
+        """Re-emits `instrs` (blocks included, balanced) with fresh ids for everything they define
+        and `rename` applied to what they use -- "the same body twice". Returns the full renaming."""
         rn = dict(rename)
         for ins in instrs:
-            assert not ins.inner and not isinstance(ins.op, (BeginFunction, BeginIf, BeginFor, BeginTry)), ins
             inputs = tuple(rn.get(v, v) for v in ins.inputs)
-            if isinstance(ins.op, DeclareVar):
-                out = self.declare(inputs[0], ins.op.kind, ins.hint)
-            else:
-                out = self.emit(ins.op, inputs, t=self.types.get(ins.outputs[0]) if ins.outputs else None,
-                                keep=ins.keep, hint=ins.hint)
-            if ins.outputs:
-                rn[ins.outputs[0]] = out
+            outs = tuple(self._new() for _ in ins.outputs)
+            inner = tuple(self._new() for _ in ins.inner)
+            rn.update(zip(ins.outputs, outs))
+            rn.update(zip(ins.inner, inner))
+            for old, new in zip(ins.outputs + ins.inner, outs + inner):
+                self.types[new] = self.types.get(old, T.UNKNOWN)
+                if old in self.declared:
+                    self.declared[new] = self.declared[old]
+            self.instrs.append(Instr(ins.op, inputs, outs, inner, ins.keep, ins.hint, self.current_gen, self.origin))
+            op = ins.op
+            if isinstance(op, BeginFunction):
+                self.frames[-1].vars.append(outs[0])
+                self.frames.append(_Frame("function", list(inner), outs[0]))
+                self.depth += 1
+            elif isinstance(op, BeginIf):
+                self.frames.append(_Frame("then", fn=self.frames[-1].fn))
+                self.depth += 1
+            elif isinstance(op, BeginFor):
+                self.loop_counters.add(inner[0])
+                self.frames.append(_Frame("for", list(inner), self.frames[-1].fn))
+                self.depth += 1
+            elif isinstance(op, BeginTry):
+                self.frames.append(_Frame("try", fn=self.frames[-1].fn))
+                self.depth += 1
+            elif isinstance(op, (BeginElse, BeginCatch, BeginFinally)):
+                kind = {BeginElse: "else", BeginCatch: "catch", BeginFinally: "finally"}[type(op)]
+                self.frames.pop()
+                self.frames.append(_Frame(kind, list(inner), self.frames[-1].fn))
+            elif isinstance(op, (EndFunction, EndIf, EndFor, EndTry)):
+                self.frames.pop()
+                self.depth -= 1
+            elif isinstance(op, Return):
+                f = self.frames[-1].fn
+                t = self.type_of(inputs[0]) if inputs else T.UNDEFINED
+                self.returns[f] = join(self.returns.get(f), t) or T.UNKNOWN
+            elif outs:
+                self.frames[-1].vars.extend(outs)
         return rn
-
-    def statement_list(self, lo: int, hi: int, *, probe: bool = False) -> None:
-        """`lo..hi` generator invocations here, as one `st.lists` draw (rule 1)."""
-        if not self.pool:
-            return
-        self.draw(st.lists(_statement(self, probe), min_size=lo, max_size=hi))
-
-    def run_some(self, n: int | None = None) -> None:
-        """Nested statements (function and loop bodies)."""
-        if self.depth > self.opts.max_depth:
-            return
-        lo, hi = self.opts.nested_statements
-        self.statement_list(0, hi if n is None else n)
 
 
 class _IfBlock:
@@ -443,17 +408,89 @@ class _TryBlock:
         yield
 
 
-@st.composite
-def _call(draw, b: Builder, fn):
-    with b.drawing(draw):
-        return fn()
+# ---------------------------------------------------------------------------- strategies
+# Plain Hypothesis: `st.composite` functions over a Builder, and `st.*` combinators.
+
+def pick(xs: Sequence[Any]) -> st.SearchStrategy:
+    """An element of a context-dependent list, by integer index: one choice whatever the size
+    (a one-element `sampled_from` records none, rule 2)."""
+    xs = list(xs)
+    return st.integers(0, len(xs) - 1).map(xs.__getitem__)
+
+
+def maybe(p: float = 0.5) -> st.SearchStrategy:
+    """True with probability ~p; shrinks towards False."""
+    k = 100 - round(p * 100)
+    return st.integers(0, 99).map(lambda n: n >= k)
 
 
 @st.composite
-def _statement(draw, b: Builder, probe: bool):
+def make(draw, b: Builder, t: T) -> int:
+    """A new value of type t, from the registered value maker."""
+    maker = registry.VALUE_MAKERS.get(t) or registry.VALUE_MAKERS[T.UNKNOWN]
+    return draw(maker(b))
+
+
+@st.composite
+def pick_or_make(draw, b: Builder, want: T | None) -> int:
+    """A visible variable of a fitting type, or (sometimes, or when there is none) a new value."""
+    fresh = draw(maybe(0.25))
+    pool = b.visible(want if want is not T.UNKNOWN else None)
+    if fresh or not pool:
+        return draw(make(b, want or T.UNKNOWN))
+    return draw(pick(pool))
+
+
+@st.composite
+def target(draw, b: Builder, want: T | None) -> int:
+    """A declared variable to assign to (fitting type, not const, not a loop counter), or a newly
+    declared one initialised with a made value."""
+    fresh = draw(maybe(0.25))
+    pool = b.assignable(want if want is not T.UNKNOWN else None)
+    if fresh or not pool:
+        return b.declare(draw(make(b, want or T.UNKNOWN)))
+    return draw(pick(pool))
+
+
+@st.composite
+def literal(draw, b: Builder, t: T, pool: Sequence[str]) -> int:
+    return b.emit(LoadLiteral(t, draw(st.sampled_from(tuple(pool)))))
+
+
+@st.composite
+def one_statement(draw, b: Builder, probe: bool = False):
     """One generator invocation (its own span), from the FIXED weighted pool (rule 3)."""
-    with b.drawing(draw):
-        gen = b.choice(b.pool)
-        b.run(gen)
-        if probe:
-            b.probe()
+    gen = draw(st.sampled_from(b.pool))
+    draw(gen.fn(b))
+    if probe:
+        b.probe()
+
+
+def statements(b: Builder, lo: int, hi: int, *, probe: bool = False) -> st.SearchStrategy:
+    """`lo..hi` generator invocations at the builder's insertion point: one `st.lists` draw."""
+    if not b.pool:
+        return st.just([])
+    return st.lists(one_statement(b, probe), min_size=lo, max_size=hi)
+
+
+@st.composite
+def nested(draw, b: Builder, n: int | None = None):
+    """Nested statements (function and loop bodies), bounded by `max_depth`."""
+    if b.depth > b.opts.max_depth:
+        return
+    draw(statements(b, 0, b.opts.nested_statements[1] if n is None else n))
+
+
+@st.composite
+def lifting_choices(draw, prog: Program, start: int = 0) -> Program:
+    """Draws the `keep` flag (decision D16) of every value-producing instruction from `start` on,
+    except those a generator pinned: one `maybe(0.2)` each, in program order, shrinking towards
+    False -- the most-inlined, most readable form. A separate, explicit step after generation, so
+    generation itself stays purely structural."""
+    out = list(prog)
+    for i in range(start, len(out)):
+        ins = out[i]
+        if ins.outputs and not ins.keep and not isinstance(ins.op, (DeclareVar, BeginFunction)):
+            if draw(maybe(0.2)):
+                out[i] = ins.replace(keep=True)
+    return tuple(out)
