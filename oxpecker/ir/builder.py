@@ -643,12 +643,13 @@ def statements(b: Builder, lo: int, hi: int, *, probe: bool = False) -> st.Searc
     return st.lists(one_statement(b, probe), min_size=lo, max_size=hi)
 
 
-@st.composite
-def nested(draw, b: Builder, n: int | None = None):
-    """Nested statements (function and loop bodies), bounded by `max_depth`."""
+def nested(b: Builder, n: int | None = None) -> st.SearchStrategy:
+    """Nested statements (function and loop bodies), bounded by `max_depth`. (A plain function, not
+    a composite: past the depth limit it draws nothing, and Hypothesis deprecates composites that
+    never draw.)"""
     if b.depth > b.opts.max_depth:
-        return
-    draw(statements(b, 0, b.opts.nested_statements[1] if n is None else n))
+        return st.just([])
+    return statements(b, 0, b.opts.nested_statements[1] if n is None else n)
 
 
 @st.composite
