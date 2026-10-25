@@ -76,8 +76,9 @@ def test_fold_only_into_the_next_statement_and_never_reorder_effects():
             I(CallFunction(), (1,), (2,)), I(GetProperty("p"), (0,), (3,)), I(Binary("+"), (2, 3), (4,)),
             I(DeclareVar(), (4,), (5,)))
     out = body(prog)
-    assert "var x3 = x1.p;" in out          # the read stays its own statement, after the call
-    assert "var x2 = f1();" in out and "x2 + x3" in out
+    assert "var x2 = f1();" in out          # the call stays a statement, before the read ...
+    assert "x2 + x1.p" in out               # ... and the read may move past `x2`: a temporary, it cannot change
+    assert "f1() + " not in out             # never: the call folded past the read
 
 
 def test_property_read_is_never_folded_into_a_callee():

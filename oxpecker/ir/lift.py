@@ -6,10 +6,12 @@ Statement per instruction, with an inlining policy that decides the *shape* of t
   `keep` -- so the same program can reach Rhino's optimizer with a local (`var n1 = 5; ... n1 * 2`)
   or with constants (`5 * 2`), and a mutation can flip it. Declared variables (`DeclareVar`,
   parameters, ...) are never inlined: they are the storage the optimizer specialises;
-- an expression is folded into its single use when that use is the very next statement and either
-  (a) it is the first operand that statement evaluates -- then nothing is reordered at all -- or
-  (b) it is a unary/binary/conditional/builtin reference/pure Eval over primitive-typed inputs only,
-  so no user code (valueOf/toString/getters) can run while it is evaluated. A property read is never
+- an expression with a single use is folded into it when that use is the next statement and
+  either (a) every operand the use evaluates before it is a temporary -- temporaries are never
+  assigned, so evaluating the expression later cannot change what they read -- or (b) the
+  expression is pure (unary/binary/conditional/builtin reference/array or object creation/pure
+  Eval/`.length` of a string or array, all over primitive-typed inputs: no user code can run).
+  A pure expression may also move past other folded pure expressions. A property read is never
   folded into a callee position (`var t = o.f; t()` and `o.f()` differ in `this`).
 
 `keep` on any instruction disables inlining/folding it (decision D16); it is drawn by the builder and
@@ -48,19 +50,18 @@ _NUMBER_START = re.compile(r"^\d")
 _FOLDABLE = (LoadLiteral, Unary, Binary, Conditional, LoadBuiltin, Eval, GetProperty, GetElement, CallFunction,
              CallMethod, Construct, Update, CreateArray, CreateObject, DeleteProperty)
 _PURE = (LoadLiteral, LoadBuiltin, Unary, Binary, Conditional, CreateArray, CreateObject)   # given primitive inputs
+_OWN_LENGTH = {T.STRING, T.ARRAY}           # `.length` is an own property: no getter can run
 
 
-def _first_evaluated(ins) -> int | None:
-    """The input slot a statement evaluates first, if a folded expression there cannot be
-    reordered against anything: the right-hand side of `t = v` (resolving `t` has no effects),
-    otherwise slot 0 -- except compound assignment and update, which read their target first,
-    and Eval, whose order is opaque."""
+def _evaluated_before(ins, slot: int) -> list[int] | None:
+    """The inputs a statement evaluates before input `slot`, or None if the order is opaque (Eval)
+    or the slot is not an ordinary operand. The target of `t = v` is a reference, not a read."""
     op = ins.op
-    if isinstance(op, Reassign):
-        return 1
-    if isinstance(op, (CompoundAssign, Update, Eval, Probe)) or not ins.inputs:
+    if isinstance(op, (Eval, Probe)):
         return None
-    return 0
+    if isinstance(op, Reassign):
+        return [] if slot == 1 else None
+    return list(ins.inputs[:slot])
 
 
 @dataclass
@@ -150,6 +151,9 @@ class _Lifter:
         self.prog, self.an = prog, an
         self.probes, self.comments, self.probe_width, self.inline = probes, comments, probe_width, inline
         self.dead = self._dead() if dce else set()
+        self.fold: dict[int, bool] = {}
+        for i in range(len(prog) - 1, -1, -1):        # decisions depend on what comes after
+            self.fold[i] = self._inline_literal(i) or self._inline_expr(i)
         self.header = header
         self.names: dict[int, str] = {}
         self.counters: dict[str, int] = {}
@@ -201,9 +205,22 @@ class _Lifter:
         return (self.inline and isinstance(op, LoadLiteral) and not ins.keep and op.type in PRIMITIVE_TYPES
                 and ins.outputs[0] not in self.an.declared and self.an.use_count.get(ins.outputs[0], 0) > 0)
 
+    def _pure(self, i: int) -> bool:
+        """Evaluating instruction i cannot run user code or change anything."""
+        ins = self.prog[i]
+        op = ins.op
+        if isinstance(op, GetProperty):
+            ok = op.name == "length" and self.an.type_at(i, ins.inputs[0]) in _OWN_LENGTH
+        else:
+            ok = isinstance(op, _PURE) or (isinstance(op, Eval) and op.pure and op.out is not None)
+        return ok and all(self.an.type_at(i, x) in PRIMITIVE_TYPES | (_OWN_LENGTH if isinstance(op, GetProperty)
+                                                                       else set())
+                          for x in ins.inputs)
+
     def _inline_expr(self, i: int) -> bool:
         """Fold an expression into its single use if that use is the next emitted statement and
-        moving it cannot reorder anything observable (module docstring, decision D11)."""
+        moving it cannot reorder anything observable (module docstring, decision D11). Called from
+        the last instruction backwards, so the decisions for everything after i are known."""
         if not self.inline:
             return False
         ins = self.prog[i]
@@ -211,21 +228,26 @@ class _Lifter:
         if ins.keep or not isinstance(op, _FOLDABLE) or (isinstance(op, Eval) and op.out is None) or not ins.outputs:
             return False
         (v,) = ins.outputs
-        if v in self.an.reassigned or self.an.use_count.get(v, 0) != 1:
+        if v in self.an.declared or self.an.use_count.get(v, 0) != 1:
             return False
+        pure = self._pure(i)
+        (u,) = self.an.users[v]
         j = i + 1
-        while j < len(self.prog) and (self._inline_literal(j) or j in self.dead):
+        # Literals spelled inline and dead code emit nothing; a pure expression may also move past
+        # other folded pure expressions (neither can affect the other).
+        while j < u and (j in self.dead or (self.fold.get(j) and (
+                isinstance(self.prog[j].op, LoadLiteral) or (pure and self._pure(j))))):
             j += 1
-        if j >= len(self.prog) or self.an.users[v] != [j]:
+        if j != u:
             return False
         user = self.prog[j]
         slot = user.inputs.index(v)
         if isinstance(op, (GetProperty, GetElement)) and isinstance(user.op, CallFunction) and slot == 0:
             return False
-        if slot == _first_evaluated(user):
-            return True
-        pure = isinstance(op, (Unary, Binary, Conditional, LoadBuiltin)) or (isinstance(op, Eval) and op.pure)
-        return pure and all(self.an.type_at(i, x) in PRIMITIVE_TYPES for x in ins.inputs)
+        if pure:
+            return not isinstance(user.op, Probe)
+        before = _evaluated_before(user, slot)
+        return before is not None and all(x not in self.an.declared for x in before)
 
     # ------------------------------------------------------------ expressions
     def _value(self, ins) -> Expr:
@@ -301,10 +323,9 @@ class _Lifter:
             op, gen = ins.op, ins.gen
             if i in self.dead:
                 continue
-            if ins.outputs and isinstance(op, _FOLDABLE):
-                if self._inline_literal(i) or self._inline_expr(i):
-                    self.inlined[ins.outputs[0]] = self._value(ins)
-                    continue
+            if ins.outputs and self.fold.get(i):
+                self.inlined[ins.outputs[0]] = self._value(ins)
+                continue
             xs = [self.expr(v) for v in ins.inputs]
             if isinstance(op, BeginFunction):
                 f = self.name(ins.outputs[0])

@@ -87,6 +87,13 @@ variables, D15):
   `this`).
   *(Revised while porting `compiler-targeted`: the first version allowed only (b), which turned
   `n2 = n1 + p1` into `var x5 = n1 + p1; n2 = x5;` because parameters are `UNKNOWN`.)*
+  *(Revised again: (a) is now "every operand the use evaluates before this slot is a temporary" —
+  temporaries are never assigned, so they read the same whether the folded expression runs before
+  or after them; only declared variables can be changed by its side effects. This covers
+  `acc.push(f(x))` (slot 1 after the temporary `acc`), which "first slot" did not. And a pure
+  expression may move past other folded pure expressions, so `[n1, n1 | 0, n1 >>> 0]` folds
+  completely; fold decisions are computed from the last instruction backwards. `.length` of a
+  string or array is pure: an own property, no getter can run.)*
 Alternative rejected: Fuzzilli-style aggressive inlining with an effect analysis — more code, and
 the conservative rule already gives nested expressions for the common numeric cases.
 
