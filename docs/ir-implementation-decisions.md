@@ -327,3 +327,15 @@ IR lineages up to 1/5/20 steps 4.5/4.7/4.7 % (max 8.7 %). Lineages drawn by Hypo
 short (the "one more step?" boolean continues with probability ½); long lineages only come from the
 fuzz loop's extensions, which is where compaction matters (critique §4). Re-run after each ported
 family.
+
+## Fuzz loop prerequisites (2026-10-25)
+
+**D36. The harness reports probe sets, not only counts** (critique §4.3, migration step 4).
+`Request.coverageNewIds` → `Outcome.newProbeIds`: which probes this run hit for the first time in
+this JVM; `Request.coverageRequire` (a probe set P) → `Outcome.requiredReached`: the subset of P
+this run reached, per mode (the client takes the union). Sets are `{class name → probe indices}`
+(stable across JVMs, readable). No extra state in the JVM: the agent is reset at every drain, so a
+drain is exactly one run's hits. Measured (`tests/test_harness_coverage.py`): a re-run of the same
+program reports 0 new probes but reaches **87 %** of the ones that were new; the other 13 % are
+once-per-JVM (class initialisation, lazy caches). So shrink-on-insert must re-run an entry and
+intersect before using P as its property, as planned (proposal §5.3, item 2).

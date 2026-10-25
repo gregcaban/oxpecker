@@ -44,6 +44,10 @@ public final class Outcome {
     public long ms;
     /** Rhino probes hit for the first time in this JVM by this run (JaCoCo agent attached only). */
     public Integer newProbes;
+    /** With Request.coverageNewIds: which probes those were (class name -> probe indices). */
+    public java.util.Map<String, java.util.List<Integer>> newProbeIds;
+    /** With Request.coverageRequire: the subset of the required probes this run reached. */
+    public java.util.Map<String, java.util.List<Integer>> requiredReached;
 
     public static final class Thrown {
         /** "js-value" for a JS throw, "ecma-error" for a Rhino runtime error, "evaluator" for EvaluatorException. */
