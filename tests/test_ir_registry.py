@@ -166,9 +166,16 @@ def test_weighted_repeats_by_weight_in_fixed_order():
     assert weighted([]) == []
 
 
-def test_available_generators_sorted_by_name():
-    names = [g.name for g in available_generators(GenOptions())]
-    assert names == sorted(names)
+def test_available_generators_simplest_first():
+    """Rule 4: index 0 (where shrinking goes) is the simplest -- families in FAMILY_ORDER, then by name."""
+    from oxpecker.ir.registry import FAMILY_ORDER
+    gens = available_generators(GenOptions())
+    ranks = [FAMILY_ORDER.index(g.family) if g.family in FAMILY_ORDER else len(FAMILY_ORDER) for g in gens]
+    assert ranks == sorted(ranks)
+    assert gens[0].family == "values"
+    for rank in set(ranks):
+        names = [g.name for g, r in zip(gens, ranks) if r == rank]
+        assert names == sorted(names)
 
 
 def test_available_generators_filters_toggles(throwaway):
@@ -191,7 +198,7 @@ def test_available_generators_allowlist():
 
 def test_available_templates_sorted_and_filtered():
     tpls = available_templates(GenOptions())
-    assert [t.name for t in tpls] == sorted(TEMPLATES)
+    assert [t.name for t in tpls] == ["plain"] + sorted(set(TEMPLATES) - {"plain"})   # simplest first
     assert [t.name for t in available_templates(GenOptions(templates=("plain",)))] == ["plain"]
     assert available_templates(GenOptions(templates=("nope",))) == []
     saved = TEMPLATES["plain"]
@@ -219,10 +226,14 @@ def test_swarm_subset_is_nonempty(res):
     "choice sequence generates a different (often longer) program; the shrinker then rejects the "
     "'excluded=False' step as shortlex-larger and leaves booleans at True."))
 def test_swarm_minimal_example_enables_all_generators():
+    # Five fixed seeds (deterministic); measured 2026-10-25: random runs end with 11-32 of 32 enabled.
+    import random
     opts = GenOptions(swarm=True)
-    _, meta = find(ir_programs(opts), lambda r: True,
-                   settings=settings(RELAXED, max_examples=1000, derandomize=True))   # shrink budget scales with max_examples
-    assert meta["enabled"] == sorted(g.name for g in available_generators(opts))
+    want = sorted(g.name for g in available_generators(opts))
+    for s in range(5):
+        _, meta = find(ir_programs(opts), lambda r: True, random=random.Random(s),
+                       settings=settings(RELAXED, max_examples=1000))   # shrink budget scales with max_examples
+        assert meta["enabled"] == want, f"seed {s}: {len(meta['enabled'])} of {len(want)} enabled"
 
 
 def test_no_swarm_enables_everything():
@@ -260,7 +271,7 @@ def test_programs_record(p):
     for span in p.generator_spans:
         a, z = span["lines"]
         assert 1 <= a <= z <= len(lines)
-        assert span["gen"] in GENERATORS
+        assert span["gen"] in GENERATORS or span["gen"] in TEMPLATES   # templates emit code too
 
 
 @RELAXED

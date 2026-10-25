@@ -189,7 +189,9 @@ generator index — returns to the full fixed weighted list. *(Corrected 2026-10
 enables 13 of 23 generators: re-enabling one changes the weighted pool, the same index choices then
 pick different generators, the program often gets longer and the shrinker rejects the flip. The
 program itself still shrinks to minimal (`test_full_program_shrinks_to_small_program`), so the cost is
-only that a shrunk test case keeps an arbitrary mask. Open: draw generator picks against the full
+only that a shrunk test case keeps an arbitrary mask. Re-measured after D30 (simplest-first order):
+a derandomized run now re-enables all 32, random runs 11–32 of 32; the strict xfail runs five fixed
+seeds. Open: draw generator picks against the full
 fixed list with a fallback for excluded ones, so the mask does not re-mean picks.)*
 
 **D24. Generators, templates and value makers are plain Hypothesis strategies; "generator" is only
@@ -226,3 +228,38 @@ returning `undefined`; an expression statement could start with an object litera
 as a block — expression statements starting with `{`, `function` or `class` are now parenthesised);
 a call whose only user was dead code was folded into it and vanished with its side effects (never
 fold into code that is not emitted).
+
+## Porting `compiler-targeted` and the templates (2026-10-25)
+
+**D28. Hypothesis minimises choices, not instructions — so fixed scaffolding is free to the
+shrinker.** Found when the minimal default program came out as a 32-instruction
+`strict_vs_sloppy_body`: it needed one generated statement where `plain` needs `min_statements`,
+and its scaffolding costs (almost) no choices. Two consequences:
+- every template's main statement list has the same floor, `opts.min_statements`, so no template
+  undercuts `plain` (the minimal default program is now always `plain`);
+- guideline for generators: parts a generator does not need for its point should be drawn
+  (deletable — `st.lists(..., min_size=0)`, `maybe()`), not fixed, so a shrunk reproducer carries
+  only what the failure needs. Not yet applied to the ported families (`numeric_local_type_flip`
+  still has three fixed guarded calls); to do as families are revisited.
+Added to proposal §3.8 as rules 12 and 13. Shrink-quality tests are derandomized and use a pool
+restricted to the value/operator families, so they test the rules rather than which family wins a
+static predicate.
+
+**D29. Strictness is tracked per frame.** `Builder.strict` is `opts.strict` or "inside a `use
+strict` function" (inherited by nested functions; `Builder.at` and `replay` restore it). Found by
+node: `activation_pair` emitted `with ({}) {}` inside the strict copy of `strict_vs_sloppy_body`
+because it only checked `opts.strict`. Generators emitting sloppy-only code check `b.strict`.
+
+**D30. Pools are ordered simplest-first, not by name** (proposal §3.8 rule 4): generators by
+family (`FAMILY_ORDER`: values, operations, properties, containers, calls, control,
+compiler-targeted, then the rest), then by name; templates with `plain` first. Sorting by name put
+`activation_pair` and `deep_closures` at index 0, where shrinking goes. Template weights are applied
+(`weighted(tpls)`); before, templates were drawn unweighted.
+
+**D31. A replayed copy keeps the original provenance** (`gen`, `origin`): the same generators
+wrote it.
+
+First IR-only findings: 100 programs, all `ok` in both modes; 5 `hard` with the known
+`super`-in-object-literal signature, 2 `hard` that are the known BigInt-in-number-typed-local bug
+(`tests/regressions/compiled-bigint-in-number-typed-local.js`, `var b = -1n` as a function local),
+rediscovered through the declared-variable model (D15).

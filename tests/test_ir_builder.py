@@ -22,6 +22,9 @@ registry.load_all()
 OPTS = GenOptions()
 POOL = registry.weighted(registry.available_generators(OPTS))
 SLOW = settings(database=None, max_examples=500, deadline=None, suppress_health_check=list(HealthCheck))
+# Minimal-program checks are derandomized: Hypothesis minimises choices, not instructions, so a
+# random run can settle in a template whose scaffolding costs few choices (decision D28).
+SHRINK = settings(SLOW, derandomize=True)
 FAST = settings(database=None, max_examples=60, deadline=None, suppress_health_check=list(HealthCheck))
 
 
@@ -720,13 +723,15 @@ def test_replay_straight_line():
     verify(b.program())
 
 
-def test_replay_applies_current_provenance():
+def test_replay_keeps_the_original_provenance():
+    """The copy was written by the same generators as the original (decision D24)."""
     b = Builder(OPTS)
-    a = lit(b, T.INT32)
+    with b.provenance("orig"):
+        lit(b, T.INT32)
     body = list(b.instrs)
     with b.provenance("rep"):
         b.replay(body, {})
-    assert b.instrs[-1].gen == "rep" and b.instrs[-1].origin == b.origins
+    assert b.instrs[-1].gen == "orig" and b.instrs[-1].origin == body[0].origin
 
 
 def test_replay_blocks():
@@ -854,6 +859,12 @@ def test_lifting_choices_start_offset():
 # The default options force >= 3 statements, each followed by a probe, so the floor for a whole program is ~10
 # instructions; the shrink-friendliness check relaxes just that floor.
 SMALL = GenOptions(min_statements=1, probes=False)
+# The shrink check below is about the strategy rules (§3.8), not about which family wins a static
+# predicate: generators with fixed scaffolding reach a `%` in few choices (decision D28), so the pool
+# is restricted to the value and operator families.
+SMALL_OPS = GenOptions(min_statements=1, probes=False, templates=("plain",),
+                       generators=tuple(n for n, g in registry.GENERATORS.items()
+                                        if g.family in ("values", "operations")))
 
 
 def _has_mod(p):
@@ -861,7 +872,7 @@ def _has_mod(p):
 
 
 def test_full_program_shrinks_to_small_program():
-    prog, _ = find(ir_programs(SMALL), _has_mod, settings=SLOW)
+    prog, _ = find(ir_programs(SMALL_OPS), _has_mod, settings=SHRINK)
     assert _has_mod((prog,))
     assert len(prog) <= 4, [(type(i.op).__name__, i.gen) for i in prog]
     verify(prog)
@@ -874,6 +885,6 @@ def test_full_program_minimum_is_small_without_predicate():
 
 
 def test_default_options_minimum_is_the_statement_floor():
-    prog, _ = minimal(ir_programs(OPTS))
+    prog, _ = find(ir_programs(OPTS), lambda x: True, settings=SHRINK)
     verify(prog)
     assert len(prog) <= 3 * OPTS.min_statements * 2 + 1      # 3 statements of <= 2 instructions + probes

@@ -48,17 +48,19 @@ class _Frame:
     kind: str                         # top | function | then | else | for | try | catch | finally
     vars: list[int] = field(default_factory=list)
     fn: int | None = None
+    strict: bool = False              # function frames: a "use strict" function
 
 
 class Builder:
     def __init__(self, opts: GenOptions, pool: Sequence[Any] = (), *, visible: Sequence[int] = (),
                  types: dict[int, T] | None = None, returns: dict[int, T] | None = None, next_id: int = 0,
                  frame: str = "top", fn: int | None = None, depth: int = 0,
-                 loop_counters: Sequence[int] = (), origin: int = 0, declared: dict[int, str] | None = None):
+                 loop_counters: Sequence[int] = (), origin: int = 0, declared: dict[int, str] | None = None,
+                 strict: bool = False):
         self.opts = opts
         self.pool = list(pool)                       # weighted, fixed-order generator list (registry)
         self.instrs: list[Instr] = []
-        self.frames: list[_Frame] = [_Frame(frame, list(visible), fn)]
+        self.frames: list[_Frame] = [_Frame(frame, list(visible), fn, strict)]
         self.types: dict[int, T] = dict(types or {})
         self.returns: dict[int, T] = dict(returns or {})
         self.loop_counters: set[int] = set(loop_counters)
@@ -76,10 +78,17 @@ class Builder:
         an = analyse(prog)
         ids = [v for ins in prog for v in ins.outputs + ins.inner]
         types = dict(an.types) | dict(an.env_at[pos])            # declared variables: their type HERE
+        strict_stack: list[bool] = []                            # enclosing functions' strictness at pos
+        for ins in prog[:pos]:
+            if isinstance(ins.op, BeginFunction):
+                strict_stack.append(ins.op.strict or (bool(strict_stack) and strict_stack[-1]))
+            elif isinstance(ins.op, EndFunction):
+                strict_stack.pop()
         return cls(opts, pool, visible=an.visible_at[pos], types=types, returns=an.returns,
                    next_id=max(ids, default=-1) + 1, frame=an.frame_at[pos], fn=an.fn_at[pos],
                    depth=an.depth_at[pos], loop_counters=an.loop_counters, declared=an.declared,
-                   origin=max((ins.origin for ins in prog), default=0) + 1)
+                   origin=max((ins.origin for ins in prog), default=0) + 1,
+                   strict=bool(strict_stack) and strict_stack[-1])
 
     def program(self) -> Program:
         return tuple(self.instrs)
@@ -107,6 +116,13 @@ class Builder:
         """Visible declared variables that may be assigned (not const, not a loop counter)."""
         return [v for v in self.visible(want) if self.declared.get(v) not in (None, "const")
                 and v not in self.loop_counters]
+
+    @property
+    def strict(self) -> bool:
+        """Is code emitted here strict -- the whole program, or inside a "use strict" function?
+        Generators that emit sloppy-only code (`with`, direct eval tricks) must check this, not
+        `opts.strict`."""
+        return self.opts.strict or any(f.strict for f in self.frames)
 
     def type_of(self, v: int) -> T:
         return self.types.get(v, T.UNKNOWN)
@@ -261,7 +277,7 @@ class Builder:
         for k, p in enumerate(params):
             self.types[p] = param_types[k] if k < len(param_types) else T.UNKNOWN
         self.frames[-1].vars.append(f)
-        self.frames.append(_Frame("function", list(params), f))
+        self.frames.append(_Frame("function", list(params), f, strict))
         self.depth += 1
         try:
             yield f, params
@@ -346,11 +362,12 @@ class Builder:
                 self.types[new] = self.types.get(old, T.UNKNOWN)
                 if old in self.declared:
                     self.declared[new] = self.declared[old]
-            self.instrs.append(Instr(ins.op, inputs, outs, inner, ins.keep, ins.hint, self.current_gen, self.origin))
+            # The copy keeps the provenance of the original: the same generators wrote it.
+            self.instrs.append(Instr(ins.op, inputs, outs, inner, ins.keep, ins.hint, ins.gen, ins.origin))
             op = ins.op
             if isinstance(op, BeginFunction):
                 self.frames[-1].vars.append(outs[0])
-                self.frames.append(_Frame("function", list(inner), outs[0]))
+                self.frames.append(_Frame("function", list(inner), outs[0], op.strict))
                 self.depth += 1
             elif isinstance(op, BeginIf):
                 self.frames.append(_Frame("then", fn=self.frames[-1].fn))

@@ -97,6 +97,17 @@ def load_all() -> None:
     _loaded = True
 
 
+# Simplest first (proposal §3.8 rule 4): shrinking lowers indices, so index 0 of the pool and of the
+# template list must be the simplest thing -- not whatever sorts first by name.
+FAMILY_ORDER = ["values", "operations", "properties", "containers", "calls", "control", "compiler-targeted"]
+SIMPLEST_TEMPLATE = "plain"
+
+
+def _simplicity(g: Generator) -> tuple:
+    rank = FAMILY_ORDER.index(g.family) if g.family in FAMILY_ORDER else len(FAMILY_ORDER)
+    return rank, g.name
+
+
 def available_generators(opts: GenOptions) -> list[Generator]:
     load_all()
     gens = [g for g in GENERATORS.values() if g.toggle is None or g.toggle in opts.toggles]
@@ -104,7 +115,7 @@ def available_generators(opts: GenOptions) -> list[Generator]:
         gens = [g for g in gens if not g.sloppy_only]
     if opts.generators is not None:
         gens = [g for g in gens if g.name in opts.generators]
-    return sorted(gens, key=lambda g: g.name)
+    return sorted(gens, key=_simplicity)
 
 
 def available_templates(opts: GenOptions) -> list[Generator]:
@@ -112,7 +123,7 @@ def available_templates(opts: GenOptions) -> list[Generator]:
     tpls = [t for t in TEMPLATES.values() if t.toggle is None or t.toggle in opts.toggles]
     if opts.templates is not None:
         tpls = [t for t in tpls if t.name in opts.templates]
-    return sorted(tpls, key=lambda t: t.name)
+    return sorted(tpls, key=lambda t: (t.name != SIMPLEST_TEMPLATE, t.name))
 
 
 def weighted(gens: list[Generator]) -> list[Generator]:

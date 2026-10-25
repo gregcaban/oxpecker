@@ -523,7 +523,15 @@ instructions; with them, to exactly 2 on 8/8 seeds.
 10. **Spend choices deliberately.** A lineage's whole history shares one ~8 KB budget of
     serialized choices (§5.2): no draws whose value is thrown away, small integer ranges where a
     small range will do, few mutation steps per round, donors kept small.
-11. **Tooling facts**: `@seed` disables database writes; two `@given` wrappers around one body
+12. **Choices, not instructions, are what gets minimised.** Fixed scaffolding (template
+    boilerplate, a generator's fixed calls) costs no choices, so it is free to the shrinker: a
+    template that needs fewer generated statements than `plain`, or a generator that reaches a
+    construct in fewer choices, becomes where every shrunk failure ends up, wrapped in code it does
+    not need. Give templates the same statement floor. (Implementation decision D28.)
+13. **Make non-essential parts deletable.** What a generator does not need for its point should be
+    drawn (`st.lists(..., min_size=0)`, `maybe()`), not fixed, so a reproducer keeps only what the
+    failure needs.
+14. **Tooling facts**: `@seed` disables database writes; two `@given` wrappers around one body
     function share a database key (that is how a fuzz target and a shrink run share findings);
     `@given` mixed with pytest fixtures needs keyword arguments.
 

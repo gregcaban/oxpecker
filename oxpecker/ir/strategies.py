@@ -32,7 +32,7 @@ def ir_programs(draw, opts: GenOptions = GenOptions()) -> tuple[IRProgram, dict]
         subset = [g for g, x in zip(gens, excluded) if not x] or gens
     else:
         subset = gens
-    tpl = draw(st.sampled_from(tpls))
+    tpl = draw(st.sampled_from(weighted(tpls)))         # weights apply to templates too; `plain` first
     b = Builder(opts, weighted(subset))
     draw(tpl.fn(b))
     # Lifting choices are drawn after generation, explicitly (decision D16).
