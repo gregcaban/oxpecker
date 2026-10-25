@@ -91,7 +91,7 @@ def load_all() -> None:
     global _loaded
     if _loaded:
         return
-    from . import generators, templates  # noqa: F401  (templates register on import)
+    from . import generators, templates, templates_fz  # noqa: F401  (templates register on import)
     for m in pkgutil.iter_modules(generators.__path__):
         importlib.import_module(f"{generators.__name__}.{m.name}")
     _loaded = True
