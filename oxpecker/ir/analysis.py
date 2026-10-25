@@ -38,7 +38,7 @@ from .ops import (ARITH, BITWISE, COMPARE, LOGICAL, RELATION, BeginCatch, BeginE
                   BeginFunction, BeginIf, BeginTry, Binary, CallFunction, CallMethod, CompoundAssign, Conditional,
                   Construct, CreateArray, CreateObject, DeclareVar, DeleteProperty, EndFor, EndFunction, EndIf, EndTry,
                   Eval, GetElement, GetProperty, Instr, LoadBuiltin, LoadLiteral, Program, Reassign, Return,
-                  SetElement, SetProperty, Unary, Update)
+                  SetElement, SetProperty, Throw, Unary, Update)
 
 
 class InvalidProgram(Exception):
@@ -329,9 +329,16 @@ class _Typer:
         self.new_escaping: dict[int, T | None] = {}
         end_env = self.walk(0, len(self.prog), {})
         self.env_at[len(self.prog)] = dict(end_env)
-        for ins in self.prog:
+        for i, ins in enumerate(self.prog):
             if isinstance(ins.op, BeginFunction):
-                self.new_returns.setdefault(ins.outputs[0], T.UNDEFINED)   # falls off the end
+                # Unless the body's last top-level statement returns or throws, the function can fall
+                # off the end and return undefined (conservative: a return in every branch of an
+                # if/else still counts as "can fall off").
+                end = self.an.block_end[i]
+                last = self.prog[end - 1].op if end - 1 > i else None
+                if not isinstance(last, (Return, Throw)):
+                    f = ins.outputs[0]
+                    self.new_returns[f] = join(self.new_returns.get(f), T.UNDEFINED)
         self.returns = self.new_returns
         self.escaping_t = self.new_escaping
         return (self.types, self.returns, self.escaping_t) != before

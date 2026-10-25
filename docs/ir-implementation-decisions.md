@@ -182,9 +182,15 @@ an `st.lists` draw with one span per statement, and generators use `st.lists` fo
 repetitions; every generator invocation is its own composite (its own span); `Builder.replay()`
 re-emits code, blocks included ("the same body twice").
 
-**D23. Swarm selection is one "excluded" boolean per generator, in a fixed order.** Shrinking
-(towards `False`) re-enables everything, so the pool — and the meaning of every generator index —
-returns to the full fixed weighted list.
+**D23. Swarm selection is one "excluded" boolean per generator, in a fixed order.** The intent was
+that shrinking (towards `False`) re-enables everything, so the pool — and the meaning of every
+generator index — returns to the full fixed weighted list. *(Corrected 2026-10-25: measured false.
+`test_swarm_minimal_example_enables_all_generators` (strict xfail) finds that the minimal example
+enables 13 of 23 generators: re-enabling one changes the weighted pool, the same index choices then
+pick different generators, the program often gets longer and the shrinker rejects the flip. The
+program itself still shrinks to minimal (`test_full_program_shrinks_to_small_program`), so the cost is
+only that a shrunk test case keeps an arbitrary mask. Open: draw generator picks against the full
+fixed list with a fallback for excluded ones, so the mask does not re-mean picks.)*
 
 **D24. Generators, templates and value makers are plain Hypothesis strategies; "generator" is only
 a name and metadata.** *(User question, 2026-10-25: "can those just be strategies? does it make
@@ -210,3 +216,13 @@ temporary vanished from the program (its value was inlined into a later use), le
 **D26. The catalogue finds generator sources itself.** `inspect.getsource` cannot see through
 `st.composite` (its `__wrapped__` is a generated proxy), so `registry.catalogue()` locates the
 `def` by name in the module, decorators included.
+
+**D27. Unit tests per stage, with strict xfail for suspected bugs.** `tests/test_ir_lift.py`,
+`test_ir_analysis.py`, `test_ir_builder.py`, `test_ir_registry.py` (~890 tests, IR line coverage
+99 %), next to `test_ir.py`. A test that fails because the code looks wrong is marked
+`xfail(strict=True, reason=...)` rather than bent to the code, and the bug is fixed separately. The
+first round found three bugs, all fixed: a function returning on only some paths was typed as never
+returning `undefined`; an expression statement could start with an object literal (`{}.m();` parses
+as a block — expression statements starting with `{`, `function` or `class` are now parenthesised);
+a call whose only user was dead code was folded into it and vanished with its side effects (never
+fold into code that is not emitted).

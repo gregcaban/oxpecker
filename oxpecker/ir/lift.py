@@ -125,6 +125,14 @@ def _member_obj(e: Expr) -> str:
     return e.text
 
 
+def _statement(text: str) -> str:
+    """An expression statement. One that starts with `{`, `function` or `class` would parse as a
+    block or a declaration (`{}.m();` is a SyntaxError), so it is parenthesised."""
+    if text.startswith("{") or re.match(r"(function|class)\b", text):
+        return f"({text});"
+    return text + ";"
+
+
 def _new_callee(e: Expr) -> str:
     """`new f()()` is `(new f())()`: a callee containing a call must be parenthesised."""
     return e.text if e.prec == PRIMARY or re.fullmatch(r"[\w$.]+", e.text) else f"({e.text})"
@@ -248,7 +256,7 @@ class _Lifter:
                 isinstance(self.prog[j].op, LoadLiteral) or (pure and self._pure(j))
                 or self._folds_into(j, u, after=slot)))):
             j += 1
-        if j != u:
+        if j != u or u in self.dead:          # never fold into code that is not emitted
             return False
         if isinstance(op, (GetProperty, GetElement)) and isinstance(user.op, CallFunction) and slot == 0:
             return False
@@ -373,9 +381,10 @@ class _Lifter:
             elif isinstance(op, Throw):
                 self.emit(indent, f"throw {xs[0].text};", gen)
             elif isinstance(op, SetProperty):
-                self.emit(indent, f"{_prop(_member_obj(xs[0]), op.name)} = {_wrap(xs[1], ASSIGNMENT)};", gen)
+                self.emit(indent, _statement(f"{_prop(_member_obj(xs[0]), op.name)} = {_wrap(xs[1], ASSIGNMENT)}"), gen)
             elif isinstance(op, SetElement):
-                self.emit(indent, f"{_member_obj(xs[0])}[{_wrap(xs[1], ASSIGNMENT)}] = {_wrap(xs[2], ASSIGNMENT)};", gen)
+                self.emit(indent, _statement(f"{_member_obj(xs[0])}[{_wrap(xs[1], ASSIGNMENT)}] = "
+                                             f"{_wrap(xs[2], ASSIGNMENT)}"), gen)
             elif isinstance(op, DeclareVar):
                 self.emit(indent, f"{op.kind} {self.name(ins.outputs[0])} = {_wrap(xs[0], ASSIGNMENT)};", gen)
             elif isinstance(op, Reassign):
@@ -385,11 +394,11 @@ class _Lifter:
             elif isinstance(op, Probe):
                 self._probe(i, indent, gen)
             elif isinstance(op, Eval) and op.out is None:
-                self.emit(indent, self._fill(op.code, xs) + ";", gen)
+                self.emit(indent, _statement(self._fill(op.code, xs)), gen)
             elif ins.outputs:
                 self.emit(indent, f"var {self.name(ins.outputs[0])} = {self._value(ins).text};", gen)
             else:
-                self.emit(indent, self._value(ins).text + ";", gen)
+                self.emit(indent, _statement(self._value(ins).text), gen)
 
     def _probe(self, i: int, indent: int, gen: str | None) -> None:
         if not self.probes:
