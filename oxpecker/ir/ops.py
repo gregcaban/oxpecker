@@ -60,8 +60,10 @@ class LoadBuiltin:
 
 @dataclass(frozen=True)
 class CreateArray:
-    """`[in0, in1, ...]`, with holes at the given element positions."""
+    """`[in0, in1, ...]`, with holes at the given element positions; inputs whose index is in
+    `spread` are spread (`...in2`)."""
     holes: tuple[int, ...] = ()
+    spread: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,21 +118,25 @@ class DeleteProperty:
 @dataclass(frozen=True)
 class CallFunction:
     """`in0(in1, ...)`; any argument count, whatever the callee's arity. With `discard` a statement
-    (no output): results nothing captured before are not turned into probed variables."""
+    (no output): results nothing captured before are not turned into probed variables. Arguments
+    whose position (0 = first argument) is in `spread` are spread (`f(...a)`)."""
     discard: bool = False
+    spread: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
 class CallMethod:
-    """`in0.name(in1, ...)`; `discard` as for CallFunction."""
+    """`in0.name(in1, ...)`; `discard` and `spread` as for CallFunction."""
     name: str
     discard: bool = False
+    spread: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
 class Construct:
-    """`new in0(in1, ...)`; `discard` as for CallFunction."""
+    """`new in0(in1, ...)`; `discard` and `spread` as for CallFunction."""
     discard: bool = False
+    spread: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -166,8 +172,9 @@ class Eval:
 
 @dataclass(frozen=True)
 class BeginFunction:
-    """outputs: the function; inner: its parameters. `style` is decl | expr | arrow; a
-    declaration inside an if/loop/try block is lifted as an expression (no Annex B semantics)."""
+    """outputs: the function; inner: its parameters. `style` is decl | expr | arrow | generator
+    (`function*`, may contain Yield); a declaration inside an if/loop/try block is lifted as an
+    expression (no Annex B semantics)."""
     arity: int
     style: str = "decl"
     strict: bool = False
@@ -201,13 +208,100 @@ class EndIf:
 @dataclass(frozen=True)
 class BeginFor:
     """`for (var i = 0; i < count; i++) {` -- always bounded; inner: the counter, which nothing
-    may reassign."""
+    may reassign. An optional `label` (`L: for ...`) is a target for labelled break/continue."""
     count: int
+    label: str | None = None
 
 
 @dataclass(frozen=True)
 class EndFor:
     pass
+
+
+@dataclass(frozen=True)
+class BeginWhile:
+    """A bounded `while` / `do ... while`: inner is a counter the loop itself decrements, so every
+    loop terminates whatever its body does -- `var c = count; while (c > 0) { c--; ...}` or
+    `var c = count; do { ... } while (c-- > 0);`. Nothing may assign the counter."""
+    count: int
+    do: bool = False
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class EndWhile:
+    pass
+
+
+@dataclass(frozen=True)
+class BeginForEach:
+    """`for (var x of in0) {` (kind "of") or `for (var k in in0) {` (kind "in"); inner: the
+    element/key variable (assignable like a parameter). Terminates when the iterable does; a
+    user-defined infinite iterator is stopped by the harness's instruction budget."""
+    kind: str = "of"
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class EndForEach:
+    pass
+
+
+@dataclass(frozen=True)
+class BeginSwitch:
+    """`switch (in0) {`; its body is a sequence of Case blocks, nothing else."""
+
+
+@dataclass(frozen=True)
+class Case:
+    """`case in0:` -- or `default:` without inputs; each case body is its own scope in the IR."""
+
+
+@dataclass(frozen=True)
+class EndSwitch:
+    pass
+
+
+@dataclass(frozen=True)
+class BeginWith:
+    """`with (in0) {` -- sloppy mode only."""
+
+
+@dataclass(frozen=True)
+class EndWith:
+    pass
+
+
+@dataclass(frozen=True)
+class BeginBlock:
+    """A bare `{`, or with a `label` a labelled block (`L: {`), a target for `break L`."""
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class EndBlock:
+    pass
+
+
+@dataclass(frozen=True)
+class Break:
+    """`break;` / `break label;` -- inside a loop or switch, or (labelled) inside the labelled
+    statement."""
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class Continue:
+    """`continue;` / `continue label;` -- inside a loop (a labelled one when labelled)."""
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class Yield:
+    """`yield in0` / `yield* in0` (`delegate`) / bare `yield` -- only directly inside a generator
+    function. With `value` the received value is an output (`var r = yield x`), else a statement."""
+    delegate: bool = False
+    value: bool = True
 
 
 @dataclass(frozen=True)
@@ -241,15 +335,20 @@ class Probe:
     label: str = ""
 
 
-BEGIN = (BeginFunction, BeginIf, BeginFor, BeginTry)
-MIDDLE = (BeginElse, BeginCatch, BeginFinally)
-END = (EndFunction, EndIf, EndFor, EndTry)
-END_OF = {BeginFunction: EndFunction, BeginIf: EndIf, BeginFor: EndFor, BeginTry: EndTry}
+BEGIN = (BeginFunction, BeginIf, BeginFor, BeginWhile, BeginForEach, BeginSwitch, BeginWith, BeginBlock, BeginTry)
+MIDDLE = (BeginElse, BeginCatch, BeginFinally, Case)
+END = (EndFunction, EndIf, EndFor, EndWhile, EndForEach, EndSwitch, EndWith, EndBlock, EndTry)
+END_OF = {BeginFunction: EndFunction, BeginIf: EndIf, BeginFor: EndFor, BeginWhile: EndWhile,
+          BeginForEach: EndForEach, BeginSwitch: EndSwitch, BeginWith: EndWith, BeginBlock: EndBlock,
+          BeginTry: EndTry}
+LOOPS = (BeginFor, BeginWhile, BeginForEach)
 
 Op = (LoadLiteral | DeclareVar | LoadBuiltin | CreateArray | CreateObject | Unary | Binary | Conditional | GetProperty
       | SetProperty | GetElement | SetElement | DeleteProperty | CallFunction | CallMethod | Construct
       | Reassign | CompoundAssign | Update | Eval | BeginFunction | EndFunction | Return | BeginIf
-      | BeginElse | EndIf | BeginFor | EndFor | BeginTry | BeginCatch | BeginFinally | EndTry | Throw | Probe)
+      | BeginElse | EndIf | BeginFor | EndFor | BeginWhile | EndWhile | BeginForEach | EndForEach | BeginSwitch
+      | Case | EndSwitch | BeginWith | EndWith | BeginBlock | EndBlock | Break | Continue | Yield | BeginTry
+      | BeginCatch | BeginFinally | EndTry | Throw | Probe)
 
 
 @dataclass(frozen=True)

@@ -30,11 +30,12 @@ from dataclasses import dataclass, field
 
 from ..gen.types import PREFIX, T
 from .analysis import Analysis, analyse
-from .ops import (BeginCatch, BeginElse, BeginFinally, BeginFor, BeginFunction, BeginIf, BeginTry, Binary,
-                  CallFunction, CallMethod, CompoundAssign, Conditional, Construct, CreateArray, CreateObject,
-                  DeclareVar, DeleteProperty, EndFor, EndFunction, EndIf, EndTry, Eval, GetElement, GetProperty, LoadBuiltin,
-                  LoadLiteral, PRIMITIVE_TYPES, Probe, Program, Reassign, Return, SetElement, SetProperty, Throw,
-                  Unary, Update)
+from .ops import (BeginBlock, BeginCatch, BeginElse, BeginFinally, BeginFor, BeginForEach, BeginFunction, BeginIf,
+                  BeginSwitch, BeginTry, BeginWhile, BeginWith, Binary, Break, CallFunction, CallMethod, Case,
+                  CompoundAssign, Conditional, Construct, Continue, CreateArray, CreateObject, DeclareVar,
+                  DeleteProperty, EndBlock, EndFor, EndForEach, EndFunction, EndIf, EndSwitch, EndTry, EndWhile,
+                  EndWith, Eval, GetElement, GetProperty, LoadBuiltin, LoadLiteral, PRIMITIVE_TYPES, Probe, Program,
+                  Reassign, Return, SetElement, SetProperty, Throw, Unary, Update, Yield)
 
 # Higher binds tighter. 20: primary; 19: member/call/new; 16: unary; 15: **; ... 3: conditional.
 _BINARY_PREC = {
@@ -125,6 +126,10 @@ def _member_obj(e: Expr) -> str:
     return e.text
 
 
+def _label(label: str | None) -> str:
+    return f"{label}: " if label else ""
+
+
 def _statement(text: str) -> str:
     """An expression statement. One that starts with `{`, `function` or `class` would parse as a
     block or a declaration (`{}.m();` is a SyntaxError), so it is parenthesised."""
@@ -169,6 +174,8 @@ class _Lifter:
         self.lines: list[tuple[int, str, str | None, bool]] = []   # (indent, text, gen, is_probe)
         self.probe_count = 0
         self.fn_styles: list[str] = []           # open functions' lifted style, to close them right
+        self.loops: list = []                     # open while loops: (op, counter name), for the footer
+        self.cases: list[bool] = []               # open switches: has a case been opened yet
 
     # ------------------------------------------------------------ naming / inlining
     def _dead(self) -> set[int]:
@@ -193,8 +200,10 @@ class _Lifter:
                 prefix = ins.hint
             elif isinstance(ins.op, BeginFunction) and v in ins.inner:
                 prefix = "p"
-            elif isinstance(ins.op, BeginFor):
+            elif isinstance(ins.op, (BeginFor, BeginWhile)):
                 prefix = "i"
+            elif isinstance(ins.op, BeginForEach):
+                prefix = "k" if ins.op.kind == "in" else "el"
             elif isinstance(ins.op, BeginCatch):
                 prefix = "ex"
             else:
@@ -274,9 +283,13 @@ class _Lifter:
         if isinstance(op, LoadBuiltin):
             return Expr(op.name, PRIMARY if _IDENT.match(op.name) else MEMBER)
         if isinstance(op, CreateArray):
-            elems, it = [], iter(xs)
+            elems, it = [], iter(enumerate(xs))
             for k in range(len(xs) + len(op.holes)):
-                elems.append("" if k in op.holes else _wrap(next(it), ASSIGNMENT))
+                if k in op.holes:
+                    elems.append("")
+                else:
+                    n, x = next(it)
+                    elems.append(("..." if n in op.spread else "") + _wrap(x, ASSIGNMENT))
             return Expr("[" + ", ".join(elems) + ("," if elems and elems[-1] == "" else "") + "]", PRIMARY)
         if isinstance(op, CreateObject):
             body = ", ".join(f"{_key(k)}: {_wrap(x, ASSIGNMENT)}" for k, x in zip(op.keys, xs))
@@ -308,11 +321,14 @@ class _Lifter:
         if isinstance(op, DeleteProperty):
             return Expr(f"delete {_prop(_member_obj(xs[0]), op.name)}", UNARY)
         if isinstance(op, CallFunction):
-            return Expr(f"{_member_obj(xs[0])}({self._args(xs[1:])})", MEMBER)
+            return Expr(f"{_member_obj(xs[0])}({self._args(xs[1:], op.spread)})", MEMBER)
         if isinstance(op, CallMethod):
-            return Expr(f"{_prop(_member_obj(xs[0]), op.name)}({self._args(xs[1:])})", MEMBER)
+            return Expr(f"{_prop(_member_obj(xs[0]), op.name)}({self._args(xs[1:], op.spread)})", MEMBER)
         if isinstance(op, Construct):
-            return Expr(f"new {_new_callee(xs[0])}({self._args(xs[1:])})", MEMBER)
+            return Expr(f"new {_new_callee(xs[0])}({self._args(xs[1:], op.spread)})", MEMBER)
+        if isinstance(op, Yield):
+            body = (" " + _wrap(xs[0], ASSIGNMENT)) if xs else ""
+            return Expr(f"yield{'*' if op.delegate else ''}{body}", ASSIGNMENT)
         if isinstance(op, Update):
             t = self.name(ins.inputs[0])
             return Expr(f"{op.op}{t}" if op.prefix else f"{t}{op.op}", UNARY)
@@ -321,8 +337,8 @@ class _Lifter:
         raise AssertionError(op)
 
     @staticmethod
-    def _args(xs: list[Expr]) -> str:
-        return ", ".join(_wrap(x, ASSIGNMENT) for x in xs)
+    def _args(xs: list[Expr], spread: tuple[int, ...] = ()) -> str:
+        return ", ".join(("..." if k in spread else "") + _wrap(x, ASSIGNMENT) for k, x in enumerate(xs))
 
     @staticmethod
     def _fill(code: str, xs: list[Expr]) -> str:
@@ -346,9 +362,12 @@ class _Lifter:
             if isinstance(op, BeginFunction):
                 f = self.name(ins.outputs[0])
                 ps = ", ".join(self.name(p) for p in ins.inner)
-                style = op.style if op.style != "decl" or an.frame_at[i] in ("top", "function") else "expr"
+                style = op.style
+                if style in ("decl", "generator") and an.frame_at[i] not in ("top", "function"):
+                    style = "expr" if style == "decl" else "generator-expr"      # no Annex B block functions
                 head = {"decl": f"function {f}({ps}) {{", "expr": f"var {f} = function({ps}) {{",
-                        "arrow": f"var {f} = ({ps}) => {{"}[style]
+                        "arrow": f"var {f} = ({ps}) => {{", "generator": f"function* {f}({ps}) {{",
+                        "generator-expr": f"var {f} = function*({ps}) {{"}[style]
                 self.emit(indent, head, gen)
                 indent += 1
                 if op.strict:
@@ -356,7 +375,7 @@ class _Lifter:
                 self.fn_styles.append(style)
             elif isinstance(op, EndFunction):
                 indent -= 1
-                self.emit(indent, "}" if self.fn_styles.pop() == "decl" else "};", gen)
+                self.emit(indent, "}" if self.fn_styles.pop() in ("decl", "generator") else "};", gen)
             elif isinstance(op, BeginIf):
                 self.emit(indent, f"if ({xs[0].text}) {{", gen)
                 indent += 1
@@ -364,8 +383,54 @@ class _Lifter:
                 self.emit(indent - 1, "} else {", gen)
             elif isinstance(op, BeginFor):
                 c = self.name(ins.inner[0])
-                self.emit(indent, f"for (var {c} = 0; {c} < {op.count}; {c}++) {{", gen)
+                self.emit(indent, f"{_label(op.label)}for (var {c} = 0; {c} < {op.count}; {c}++) {{", gen)
                 indent += 1
+            elif isinstance(op, BeginWhile):
+                c = self.name(ins.inner[0])
+                self.emit(indent, f"var {c} = {op.count};", gen)
+                if op.do:
+                    self.emit(indent, f"{_label(op.label)}do {{", gen)
+                    indent += 1
+                else:
+                    self.emit(indent, f"{_label(op.label)}while ({c} > 0) {{", gen)
+                    indent += 1
+                    self.emit(indent, f"{c}--;", gen)
+                self.loops.append((op, c))
+            elif isinstance(op, EndWhile):
+                loop, c = self.loops.pop()
+                indent -= 1
+                self.emit(indent, f"}} while ({c}-- > 0);" if loop.do else "}", gen)
+            elif isinstance(op, BeginForEach):
+                self.emit(indent, f"{_label(op.label)}for (var {self.name(ins.inner[0])} {op.kind} {xs[0].text}) {{", gen)
+                indent += 1
+            elif isinstance(op, BeginSwitch):
+                self.emit(indent, f"switch ({xs[0].text}) {{", gen)
+                indent += 1
+                self.cases.append(False)
+            elif isinstance(op, Case):
+                if self.cases[-1]:
+                    indent -= 1
+                self.cases[-1] = True
+                self.emit(indent, f"case {xs[0].text}:" if xs else "default:", gen)
+                indent += 1
+            elif isinstance(op, EndSwitch):
+                if self.cases.pop():
+                    indent -= 1
+                indent -= 1
+                self.emit(indent, "}", gen)
+            elif isinstance(op, BeginWith):
+                self.emit(indent, f"with ({xs[0].text}) {{", gen)
+                indent += 1
+            elif isinstance(op, BeginBlock):
+                self.emit(indent, f"{_label(op.label)}{{", gen)
+                indent += 1
+            elif isinstance(op, (EndForEach, EndWith, EndBlock)):
+                indent -= 1
+                self.emit(indent, "}", gen)
+            elif isinstance(op, Break):
+                self.emit(indent, f"break {op.label};" if op.label else "break;", gen)
+            elif isinstance(op, Continue):
+                self.emit(indent, f"continue {op.label};" if op.label else "continue;", gen)
             elif isinstance(op, BeginTry):
                 self.emit(indent, "try {", gen)
                 indent += 1

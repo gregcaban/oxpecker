@@ -36,10 +36,12 @@ from hypothesis import strategies as st
 from ..gen.builder import GenOptions
 from ..gen.types import T, compatible
 from .analysis import analyse, binary_type, join, unary_type, update_type
-from .ops import (BeginCatch, BeginElse, BeginFinally, BeginFor, BeginFunction, BeginIf, BeginTry, Binary,
-                  CallFunction, CallMethod, CompoundAssign, Conditional, Construct, CreateArray, CreateObject,
-                  DeclareVar, DeleteProperty, EndFor, EndFunction, EndIf, EndTry, Eval, GetElement, GetProperty, Instr,
-                  LoadBuiltin, LoadLiteral, Op, Probe, Program, Reassign, Return, Unary, Update)
+from .ops import (BeginBlock, BeginCatch, BeginElse, BeginFinally, BeginFor, BeginForEach, BeginFunction, BeginIf,
+                  BeginSwitch, BeginTry, BeginWhile, BeginWith, Binary, Break, CallFunction, CallMethod, Case,
+                  CompoundAssign, Conditional, Construct, Continue, CreateArray, CreateObject, DeclareVar,
+                  DeleteProperty, EndBlock, EndFor, EndForEach, EndFunction, EndIf, EndSwitch, EndTry, EndWhile,
+                  EndWith, Eval, GetElement, GetProperty, Instr, LoadBuiltin, LoadLiteral, Op, Probe, Program,
+                  Reassign, Return, Unary, Update, Yield)
 from . import registry
 
 
@@ -49,6 +51,8 @@ class _Frame:
     vars: list[int] = field(default_factory=list)
     fn: int | None = None
     strict: bool = False              # function frames: a "use strict" function
+    generator: bool = False           # function frames: a generator function (may yield)
+    label: str | None = None          # loops and blocks: break/continue target
 
 
 class Builder:
@@ -71,6 +75,7 @@ class Builder:
         self.origin = origin
         self.origins = origin                        # last origin handed out
         self.gen_usage: dict[str, int] = {}
+        self.labels = 0
 
     @classmethod
     def at(cls, prog: Program, pos: int, opts: GenOptions, pool: Sequence[Any] = ()) -> "Builder":
@@ -277,7 +282,7 @@ class Builder:
         for k, p in enumerate(params):
             self.types[p] = param_types[k] if k < len(param_types) else T.UNKNOWN
         self.frames[-1].vars.append(f)
-        self.frames.append(_Frame("function", list(params), f, strict))
+        self.frames.append(_Frame("function", list(params), f, strict, generator=style == "generator"))
         self.depth += 1
         try:
             yield f, params
@@ -314,6 +319,107 @@ class Builder:
             self.depth -= 1
             self.frames.pop()
             self._append(EndFor())
+
+    def fresh_label(self) -> str:
+        """A label no enclosing statement uses (nested labelled statements must not repeat one)."""
+        self.labels += 1
+        return f"L{self.labels}"
+
+    def _block(self, begin: Op, end: Op, kind: str, *, inputs=(), inner=(), label=None):
+        self._append(begin, inputs, (), inner)
+        self.frames.append(_Frame(kind, list(inner), self.frames[-1].fn, label=label))
+        self.depth += 1
+        return end
+
+    def _close(self, end: Op) -> None:
+        self.depth -= 1
+        self.frames.pop()
+        self._append(end)
+
+    @contextmanager
+    def while_(self, count: int, *, do: bool = False, label: str | None = None) -> Iterator[int]:
+        """A bounded while / do-while; yields its counter (nothing may assign it)."""
+        c = self._new()
+        self.types[c] = T.INT32
+        self.loop_counters.add(c)
+        end = self._block(BeginWhile(count, do, label), EndWhile(), "while", inner=(c,), label=label)
+        try:
+            yield c
+        finally:
+            self._close(end)
+
+    @contextmanager
+    def for_each(self, iterable: int, *, kind: str = "of", label: str | None = None) -> Iterator[int]:
+        """`for (var x of iterable)` / `for (var k in obj)`; yields the loop variable."""
+        x = self._new()
+        self.types[x] = T.STRING if kind == "in" else T.UNKNOWN
+        self.declared[x] = "loopvar"
+        end = self._block(BeginForEach(kind, label), EndForEach(), "foreach", inputs=(iterable,), inner=(x,),
+                          label=label)
+        try:
+            yield x
+        finally:
+            self._close(end)
+
+    @contextmanager
+    def switch_(self, disc: int) -> Iterator["_SwitchBlock"]:
+        self._append(BeginSwitch(), (disc,))
+        self.frames.append(_Frame("switch", fn=self.frames[-1].fn))
+        self.depth += 1
+        blk = _SwitchBlock(self)
+        try:
+            yield blk
+        finally:
+            if self.frames[-1].kind == "case":
+                self.frames.pop()
+            self.frames.pop()
+            self.depth -= 1
+            self._append(EndSwitch())
+
+    @contextmanager
+    def with_(self, obj: int) -> Iterator[None]:
+        end = self._block(BeginWith(), EndWith(), "with", inputs=(obj,))
+        try:
+            yield
+        finally:
+            self._close(end)
+
+    @contextmanager
+    def block(self, label: str | None = None) -> Iterator[None]:
+        end = self._block(BeginBlock(label), EndBlock(), "block", label=label)
+        try:
+            yield
+        finally:
+            self._close(end)
+
+    def break_(self, label: str | None = None) -> None:
+        self._append(Break(label))
+
+    def continue_(self, label: str | None = None) -> None:
+        self._append(Continue(label))
+
+    def yield_(self, value: int | None = None, *, delegate: bool = False, result: bool = True) -> int | None:
+        """`yield value` inside a generator function; with `result` returns the received value."""
+        fn = next((f for f in reversed(self.frames) if f.kind == "function"), None)
+        assert fn is not None and fn.generator, "yield outside a generator function"
+        if result:
+            v = self._new()
+            self.types[v] = T.UNKNOWN
+            self._append(Yield(delegate, True), (value,) if value is not None else (), (v,))
+            self.frames[-1].vars.append(v)
+            return v
+        self._append(Yield(delegate, False), (value,) if value is not None else ())
+        return None
+
+    @property
+    def in_loop(self) -> bool:
+        """Is there a loop to break out of / continue, without crossing a function?"""
+        for f in reversed(self.frames):
+            if f.kind == "function":
+                return False
+            if f.kind in ("for", "while", "foreach"):
+                return True
+        return False
 
     @contextmanager
     def try_(self) -> Iterator["_TryBlock"]:
@@ -367,15 +473,30 @@ class Builder:
             op = ins.op
             if isinstance(op, BeginFunction):
                 self.frames[-1].vars.append(outs[0])
-                self.frames.append(_Frame("function", list(inner), outs[0], op.strict))
+                self.frames.append(_Frame("function", list(inner), outs[0], op.strict,
+                                          generator=op.style == "generator"))
                 self.depth += 1
             elif isinstance(op, BeginIf):
                 self.frames.append(_Frame("then", fn=self.frames[-1].fn))
                 self.depth += 1
-            elif isinstance(op, BeginFor):
+            elif isinstance(op, (BeginFor, BeginWhile)):
                 self.loop_counters.add(inner[0])
-                self.frames.append(_Frame("for", list(inner), self.frames[-1].fn))
+                self.frames.append(_Frame("for" if isinstance(op, BeginFor) else "while", list(inner),
+                                          self.frames[-1].fn, label=op.label))
                 self.depth += 1
+            elif isinstance(op, (BeginForEach, BeginWith, BeginBlock, BeginSwitch)):
+                kind = {BeginForEach: "foreach", BeginWith: "with", BeginBlock: "block", BeginSwitch: "switch"}[type(op)]
+                self.frames.append(_Frame(kind, list(inner), self.frames[-1].fn, label=getattr(op, "label", None)))
+                self.depth += 1
+            elif isinstance(op, Case):
+                if self.frames[-1].kind == "case":
+                    self.frames.pop()
+                self.frames.append(_Frame("case", fn=self.frames[-1].fn))
+            elif isinstance(op, EndSwitch):
+                if self.frames[-1].kind == "case":
+                    self.frames.pop()
+                self.frames.pop()
+                self.depth -= 1
             elif isinstance(op, BeginTry):
                 self.frames.append(_Frame("try", fn=self.frames[-1].fn))
                 self.depth += 1
@@ -383,7 +504,7 @@ class Builder:
                 kind = {BeginElse: "else", BeginCatch: "catch", BeginFinally: "finally"}[type(op)]
                 self.frames.pop()
                 self.frames.append(_Frame(kind, list(inner), self.frames[-1].fn))
-            elif isinstance(op, (EndFunction, EndIf, EndFor, EndTry)):
+            elif isinstance(op, (EndFunction, EndIf, EndFor, EndTry, EndWhile, EndForEach, EndWith, EndBlock)):
                 self.frames.pop()
                 self.depth -= 1
             elif isinstance(op, Return):
@@ -405,6 +526,23 @@ class _IfBlock:
         b.frames.pop()
         b._append(BeginElse())
         b.frames.append(_Frame("else", fn=b.frames[-1].fn))
+        yield
+
+
+class _SwitchBlock:
+    def __init__(self, b: Builder):
+        self.b = b
+
+    @contextmanager
+    def case(self, value: int | None) -> Iterator[None]:
+        """`case value:` (or `default:` with None); the case body is what the block emits. The value
+        must be defined BEFORE the switch (verify rejects anything else): in JavaScript a case
+        expression is evaluated at test time, outside every case body."""
+        b = self.b
+        if b.frames[-1].kind == "case":
+            b.frames.pop()
+        b._append(Case(), (value,) if value is not None else ())
+        b.frames.append(_Frame("case", fn=b.frames[-1].fn))
         yield
 
 

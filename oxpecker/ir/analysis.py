@@ -34,11 +34,17 @@ import re
 from dataclasses import dataclass, field
 
 from ..gen.types import OBJECTS, T
-from .ops import (ARITH, BITWISE, COMPARE, LOGICAL, RELATION, BeginCatch, BeginElse, BeginFinally, BeginFor,
-                  BeginFunction, BeginIf, BeginTry, Binary, CallFunction, CallMethod, CompoundAssign, Conditional,
-                  Construct, CreateArray, CreateObject, DeclareVar, DeleteProperty, EndFor, EndFunction, EndIf, EndTry,
-                  Eval, GetElement, GetProperty, Instr, LoadBuiltin, LoadLiteral, Program, Reassign, Return,
-                  SetElement, SetProperty, Throw, Unary, Update)
+from .ops import (ARITH, BITWISE, COMPARE, LOGICAL, LOOPS, RELATION, BeginBlock, BeginCatch, BeginElse, BeginFinally,
+                  BeginFor, BeginForEach, BeginFunction, BeginIf, BeginSwitch, BeginTry, BeginWhile, BeginWith, Binary,
+                  Break, CallFunction, CallMethod, Case, CompoundAssign, Conditional, Construct, Continue, CreateArray,
+                  CreateObject, DeclareVar, DeleteProperty, EndBlock, EndFor, EndForEach, EndFunction, EndIf,
+                  EndSwitch, EndTry, EndWhile, EndWith, Eval, GetElement, GetProperty, Instr, LoadBuiltin, LoadLiteral,
+                  Program, Reassign, Return, SetElement, SetProperty, Throw, Unary, Update, Yield)
+
+_LOOP_FRAMES = ("for", "while", "foreach")
+_BLOCK_FRAMES = {BeginWhile: "while", BeginForEach: "foreach", BeginWith: "with", BeginBlock: "block"}
+_END_WANTS = {EndFunction: ("function",), EndIf: ("then", "else"), EndFor: ("for",), EndWhile: ("while",),
+              EndForEach: ("foreach",), EndWith: ("with",), EndBlock: ("block",), EndTry: ("catch", "finally")}
 
 
 class InvalidProgram(Exception):
@@ -124,10 +130,13 @@ def update_type(a: T | None) -> T:
 
 @dataclass
 class Frame:
-    kind: str                       # top | function | then | else | for | try | catch | finally
+    kind: str                       # top | function | then | else | for | while | foreach | switch | case
+                                    # | with | block | try | catch | finally
     begin: int                      # index of the instruction that opened the block (-1: top)
     vars: list[int] = field(default_factory=list)
     fn: int | None = None           # innermost enclosing function variable
+    label: str | None = None        # loops and blocks: a break/continue target name
+    generator: bool = False         # function frames: a generator function (may yield)
 
 
 @dataclass
@@ -196,6 +205,17 @@ def _structure(prog: Program) -> Analysis:
     def block_kind() -> str:
         return "block" if frames[-1].kind not in ("top", "function") else frames[-1].kind
 
+    def enclosing(stop_at_function: bool = True):
+        """Frames from the innermost outwards, up to (not including) the enclosing function."""
+        for f in reversed(frames):
+            if stop_at_function and f.kind == "function":
+                return
+            yield f
+
+    def check_label(i: int, label: str | None) -> None:
+        if label is not None and any(f.label == label for f in enclosing()):
+            raise InvalidProgram(f"label {label!r} at {i} shadows an enclosing label")
+
     for i, ins in enumerate(prog):
         visible = [v for f in frames for v in f.vars]
         an.visible_at.append(visible)
@@ -224,6 +244,8 @@ def _structure(prog: Program) -> Analysis:
             define(v, i)
         for v in ins.inner:
             define(v, i)
+        if frames[-1].kind == "switch" and not isinstance(op, (Case, EndSwitch)):
+            raise InvalidProgram(f"{type(op).__name__} at {i} directly in a switch, outside any case")
 
         if isinstance(op, BeginFunction):
             if len(ins.outputs) != 1 or len(ins.inner) != op.arity:
@@ -235,7 +257,7 @@ def _structure(prog: Program) -> Analysis:
             for p in ins.inner:
                 an.declared[p] = "param"
             frames[-1].vars.append(f)                       # visible inside (recursion) and after
-            frames.append(Frame("function", i, list(ins.inner), fn=f))
+            frames.append(Frame("function", i, list(ins.inner), fn=f, generator=op.style == "generator"))
         elif isinstance(op, BeginIf):
             frames.append(Frame("then", i, fn=fn))
         elif isinstance(op, BeginElse):
@@ -247,9 +269,70 @@ def _structure(prog: Program) -> Analysis:
         elif isinstance(op, BeginFor):
             if len(ins.inner) != 1:
                 raise InvalidProgram(f"for at {i} needs a counter")
+            check_label(i, op.label)
             an.loop_counters.add(ins.inner[0])
             an.storage[ins.inner[0]] = "counter"
-            frames.append(Frame("for", i, list(ins.inner), fn=fn))
+            frames.append(Frame("for", i, list(ins.inner), fn=fn, label=op.label))
+        elif isinstance(op, (BeginWhile, BeginForEach, BeginWith, BeginBlock)):
+            label = getattr(op, "label", None)
+            check_label(i, label)
+            if isinstance(op, BeginWhile):
+                if len(ins.inner) != 1:
+                    raise InvalidProgram(f"while at {i} needs a counter")
+                an.loop_counters.add(ins.inner[0])
+                an.storage[ins.inner[0]] = "counter"
+            elif isinstance(op, BeginForEach):
+                if len(ins.inner) != 1 or len(ins.inputs) != 1 or op.kind not in ("of", "in"):
+                    raise InvalidProgram(f"for-{op.kind} at {i} needs an iterable and one loop variable")
+                an.declared[ins.inner[0]] = "loopvar"
+                an.storage[ins.inner[0]] = "loopvar"
+            elif isinstance(op, BeginWith) and len(ins.inputs) != 1:
+                raise InvalidProgram(f"with at {i} needs an object")
+            frames.append(Frame(_BLOCK_FRAMES[type(op)], i, list(ins.inner), fn=fn, label=label))
+        elif isinstance(op, BeginSwitch):
+            if len(ins.inputs) != 1:
+                raise InvalidProgram(f"switch at {i} needs a discriminant")
+            frames.append(Frame("switch", i, fn=fn))
+        elif isinstance(op, Case):
+            if frames[-1].kind == "case":
+                frames.pop()
+            if frames[-1].kind != "switch":
+                raise InvalidProgram(f"case at {i} outside a switch")
+            begin = frames[-1].begin
+            outside = set(an.visible_at[begin])
+            if any(v not in outside for v in ins.inputs):
+                raise InvalidProgram(f"case value at {i} must be defined before the switch")
+            cases = an.middle.setdefault(begin, [])
+            if not ins.inputs and any(not prog[c].inputs for c in cases):
+                raise InvalidProgram(f"second default at {i}")
+            if len(ins.inputs) > 1:
+                raise InvalidProgram(f"case at {i} has more than one value")
+            cases.append(i)
+            frames.append(Frame("case", begin, fn=fn))
+        elif isinstance(op, EndSwitch):
+            if frames[-1].kind == "case":
+                frames.pop()
+            if frames[-1].kind != "switch":
+                raise InvalidProgram(f"EndSwitch at {i} closes a {frames[-1].kind} block")
+            an.block_end[frames.pop().begin] = i
+        elif isinstance(op, Break):
+            ok = any((f.label == op.label) if op.label else (f.kind in _LOOP_FRAMES or f.kind == "case")
+                     for f in enclosing())
+            if not ok:
+                raise InvalidProgram(f"break{' ' + op.label if op.label else ''} at {i} has no target")
+        elif isinstance(op, Continue):
+            ok = any(f.kind in _LOOP_FRAMES and (op.label is None or f.label == op.label) for f in enclosing())
+            if not ok:
+                raise InvalidProgram(f"continue{' ' + op.label if op.label else ''} at {i} has no loop target")
+        elif isinstance(op, Yield):
+            fn_frame = next((f for f in reversed(frames) if f.kind == "function"), None)
+            if fn_frame is None or not fn_frame.generator:
+                raise InvalidProgram(f"yield at {i} outside a generator function")
+            if (ins.outputs and not op.value) or len(ins.inputs) > 1 or (op.delegate and not ins.inputs):
+                raise InvalidProgram(f"malformed yield at {i}")
+            if ins.outputs:
+                an.storage[ins.outputs[0]] = "temp-local"
+                frames[-1].vars.extend(ins.outputs)
         elif isinstance(op, BeginTry):
             frames.append(Frame("try", i, fn=fn))
         elif isinstance(op, (BeginCatch, BeginFinally)):
@@ -261,9 +344,8 @@ def _structure(prog: Program) -> Analysis:
                 an.declared[e] = "catch"
                 an.storage[e] = "catch"
             frames.append(Frame("catch" if isinstance(op, BeginCatch) else "finally", begin, list(ins.inner), fn=fn))
-        elif isinstance(op, (EndFunction, EndIf, EndFor, EndTry)):
-            want = {EndFunction: ("function",), EndIf: ("then", "else"), EndFor: ("for",),
-                    EndTry: ("catch", "finally")}[type(op)]
+        elif type(op) in _END_WANTS:
+            want = _END_WANTS[type(op)]
             if frames[-1].kind not in want:
                 raise InvalidProgram(f"{type(op).__name__} at {i} closes a {frames[-1].kind} block")
             an.block_end[frames.pop().begin] = i
@@ -319,6 +401,7 @@ class _Typer:
         self.returns: dict[int, T | None] = {}
         self.env_at: dict[int, dict[int, T]] = {}
         self.escaping_t: dict[int, T | None] = {}   # escaping variables: join of everything assigned
+        self.targets: list[dict] = []               # open loops/switches/labelled blocks (break/continue)
 
     def walk_all(self) -> bool:
         """One pass from scratch, reading return types and escaping variables' types from the
@@ -390,19 +473,33 @@ class _Typer:
                 env = join_env(env_then, env_else)
                 i = end + 1
                 continue
-            if isinstance(op, BeginFor):
+            if isinstance(op, LOOPS):
                 end = an.block_end[i]
-                self.types[ins.inner[0]] = T.INT32
-                head = dict(env)
-                for _ in range(4):                       # the body may run 0..n times
-                    out = self.walk(i + 1, end, dict(head))
-                    nxt = join_env(env, out)
-                    if nxt == head:
-                        break
-                    head = nxt
-                self.env_at[end] = dict(out)
-                env = head
+                env = self.loop(i, end, ins, env)
                 i = end + 1
+                continue
+            if isinstance(op, BeginSwitch):
+                end = an.block_end[i]
+                env = self.switch(i, end, env)
+                i = end + 1
+                continue
+            if isinstance(op, (BeginWith, BeginBlock)):
+                end = an.block_end[i]
+                target = {"label": getattr(op, "label", None), "kind": "block", "breaks": [], "continues": []}
+                self.targets.append(target)
+                out = self.walk(i + 1, end, dict(env))
+                self.targets.pop()
+                self.env_at[end] = dict(out)
+                env = out
+                for e in target["breaks"]:
+                    env = join_env(env, e)
+                i = end + 1
+                continue
+            if isinstance(op, (Break, Continue)):
+                t = self._target(op)
+                if t is not None:
+                    t["breaks" if isinstance(op, Break) else "continues"].append(dict(env))
+                i += 1
                 continue
             if isinstance(op, BeginTry):
                 end = an.block_end[i]
@@ -429,6 +526,68 @@ class _Typer:
             self.step(i, ins, env)
             i += 1
         return env
+
+    def _target(self, op) -> dict | None:
+        """The loop/switch/labelled statement a break or continue leaves (verify checked it exists)."""
+        for t in reversed(self.targets):
+            if op.label is not None:
+                if t["label"] == op.label:
+                    return t
+            elif t["kind"] == "loop" or (isinstance(op, Break) and t["kind"] == "switch"):
+                return t
+        return None
+
+    def loop(self, i: int, end: int, ins: Instr, env: dict[int, T]) -> dict[int, T]:
+        """for / while / for-each: the body runs 0..n times (do-while at least once, but joining
+        with the entry is a sound over-approximation). A `continue` flows back to the head, a
+        `break` to the exit."""
+        op = ins.op
+        if isinstance(op, (BeginFor, BeginWhile)):
+            self.types[ins.inner[0]] = T.INT32
+        target = {"label": op.label, "kind": "loop", "breaks": [], "continues": []}
+        self.targets.append(target)
+        head = dict(env)
+        for _ in range(5):
+            target["breaks"].clear()
+            target["continues"].clear()
+            body = dict(head)
+            if isinstance(op, BeginForEach):
+                self.assign(ins.inner[0], T.STRING if op.kind == "in" else T.UNKNOWN, body)
+            out = self.walk(i + 1, end, body)
+            nxt = join_env(env, out)
+            for c in target["continues"]:
+                nxt = join_env(nxt, c)
+            if nxt == head:
+                break
+            head = nxt
+        self.targets.pop()
+        self.env_at[end] = dict(out)
+        exit_env = head
+        for b in target["breaks"]:
+            exit_env = join_env(exit_env, b)
+        return exit_env
+
+    def switch(self, i: int, end: int, env: dict[int, T]) -> dict[int, T]:
+        """Each case is entered from the discriminant test or by falling through from the previous
+        case; the switch is left by a break, by falling off the last case, or (no default) by no
+        case matching."""
+        cases = self.an.middle.get(i, [])
+        target = {"label": None, "kind": "switch", "breaks": [], "continues": []}
+        self.targets.append(target)
+        fall: dict[int, T] | None = None
+        for k, c in enumerate(cases):
+            stop = cases[k + 1] if k + 1 < len(cases) else end
+            entry = join_env(env, fall) if fall is not None else dict(env)
+            self.env_at[c] = dict(entry)
+            fall = self.walk(c + 1, stop, entry)
+        self.targets.pop()
+        out = fall if fall is not None else dict(env)
+        if not any(not self.prog[c].inputs for c in cases):      # no default: maybe nothing matched
+            out = join_env(out, env)
+        for b in target["breaks"]:
+            out = join_env(out, b)
+        self.env_at[end] = dict(out)
+        return out
 
     def step(self, i: int, ins: Instr, env: dict[int, T]) -> None:
         op, an = ins.op, self.an
@@ -462,7 +621,10 @@ class _Typer:
             callee = ins.inputs[0]
             d = self.prog[an.def_index[callee]].op
             known = isinstance(d, BeginFunction) and callee not in an.reassigned
-            out = self.returns.get(callee) if known else T.UNKNOWN     # None (bottom) until known
+            if known and d.style == "generator":
+                out = T.OBJECT                                         # calling a generator makes an iterator
+            else:
+                out = self.returns.get(callee) if known else T.UNKNOWN  # None (bottom) until known
         elif isinstance(op, CallMethod):
             out = _METHOD_RESULT.get(op.name) or (T.ARRAY if op.name in _ARRAY_RESULT and ts[0] == T.ARRAY
                                                   else T.UNKNOWN)
@@ -471,6 +633,8 @@ class _Typer:
             out = _CONSTRUCTED.get(d.name, T.OBJECT) if isinstance(d, LoadBuiltin) else T.OBJECT
         elif isinstance(op, Eval):
             out = op.out
+        elif isinstance(op, Yield):
+            out = T.UNKNOWN if op.value else None                      # whatever the caller sends in
         elif isinstance(op, Reassign):
             self.assign(ins.inputs[0], ts[1], env)
         elif isinstance(op, CompoundAssign):

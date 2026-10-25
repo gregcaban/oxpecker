@@ -272,3 +272,26 @@ interpreted mode runs (the parser is shared; compiled-mode codegen problems are 
 differential test). A sanity test checks the check rejects invalid JavaScript. First run: 900
 programs, all accepted. Motivated by the template-literal brace bug (D24 era) that Rhino caught and
 node, on some programs, did not.
+
+## Control flow for the remaining families (2026-10-25)
+
+**D33. Structured ops for everything that contains generated code; `Eval` for one-off syntax.**
+Added: `BeginWhile(count, do, label)` (bounded: the loop declares and decrements its own counter —
+`var c = N; while (c > 0) { c--; …}` / `do { … } while (c-- > 0);` — so every loop terminates
+whatever its body does, and nothing may assign the counter), `BeginForEach(kind of|in, label)`
+(inner: the loop variable, assignable, storage `loopvar`), `BeginSwitch` / `Case` (default without
+inputs, each case its own scope, nothing directly in the switch outside a case, at most one default,
+case values defined BEFORE the switch — a case expression is evaluated at test time, outside every
+case body), `BeginWith` (sloppy only), `BeginBlock(label)` (bare or labelled), `Break(label)`,
+`Continue(label)`, labels on `BeginFor`, generator functions (`style="generator"`) with
+`Yield(delegate, value)`, and `spread` positions on calls, `new` and array literals.
+Verification: break needs an enclosing loop/switch (or the labelled statement), continue an
+enclosing loop (the labelled one), neither crosses a function; a label may not shadow an enclosing
+one (`Builder.fresh_label()`); yield only directly inside a generator function.
+Typing: one loop rule for for/while/for-each (body 0..n times — for do-while a sound
+over-approximation), `break` environments joined into the exit, `continue` environments into the
+head; switch cases entered from the test or by fallthrough, left by break, by falling off, or (no
+default) by no match; for-in keys are strings; calling a generator function gives an OBJECT.
+Through builtins/`Eval`, for now: classes (no generated method bodies in the current generators),
+object-literal getters/setters, `new.target`, `super`, TDZ reads, Proxy/Promise handler objects;
+`J`, `__pause`, `eval` are builtins plus calls. Tests: `tests/test_ir_blocks.py`.
