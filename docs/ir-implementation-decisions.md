@@ -295,3 +295,27 @@ default) by no match; for-in keys are strings; calling a generator function give
 Through builtins/`Eval`, for now: classes (no generated method bodies in the current generators),
 object-literal getters/setters, `new.target`, `super`, TDZ reads, Proxy/Promise handler objects;
 `J`, `__pause`, `eval` are builtins plus calls. Tests: `tests/test_ir_blocks.py`.
+
+## Mutators and lineages (2026-10-25)
+
+**D34. Six mutators, all strategies, in `oxpecker/ir/mutate.py`; lineages via `evolved()`.**
+Order (simplest first, codegen the fallback when a pick does not apply): operation, input,
+reassign, codegen, splice, activation.
+- *operation* changes one parameter — a literal's spelling within its type, an operator within its
+  group, a loop bound, a property name — or flips one lifting choice (`keep`, D16); never to the
+  current value (the spike's 29 % no-op mutations, critique §6).
+- *input* rewires one operand to another visible variable that the slot accepts under the types
+  **at that point** (D17), function slots to functions, value slots to values.
+- *reassign* (critique §2) inserts `v = w` for a declared, assignable `v` and a `w` of a different
+  type class there (number / string / bigint / boolean / nullish / symbol).
+- *codegen* runs the same `statements()` strategy at an insertion point via `Builder.at`, with the
+  pool cut to non-sloppy generators when the point is strict (D29), then draws lifting choices for
+  the new instructions. `Builder.at` starts its label counter above the program's labels.
+- *splice* copies a closed backward slice of a donor drawn inside the same test case (proposal
+  §3.5; corpus donors come with the fuzz loop).
+- *activation* inserts an `arguments` read at the top of a non-arrow function without one: one
+  instruction that moves all its locals off the optimizer path (critique §2).
+Children are re-verified; invalid ones are `reject()`ed. Tests (`tests/test_ir_mutate.py`): per
+mutator, children differ from the parent and < 35 % are invalid; each mutator's specific effect;
+lineages verify, lift and parse with node; the median mutation keeps ≥ 90 % of the parent; and a
+shrunk lineage keeps exactly the step a property needs (`["reassign"]`).

@@ -89,11 +89,16 @@ class Builder:
                 strict_stack.append(ins.op.strict or (bool(strict_stack) and strict_stack[-1]))
             elif isinstance(ins.op, EndFunction):
                 strict_stack.pop()
-        return cls(opts, pool, visible=an.visible_at[pos], types=types, returns=an.returns,
-                   next_id=max(ids, default=-1) + 1, frame=an.frame_at[pos], fn=an.fn_at[pos],
-                   depth=an.depth_at[pos], loop_counters=an.loop_counters, declared=an.declared,
-                   origin=max((ins.origin for ins in prog), default=0) + 1,
-                   strict=bool(strict_stack) and strict_stack[-1])
+        b = cls(opts, pool, visible=an.visible_at[pos], types=types, returns=an.returns,
+                next_id=max(ids, default=-1) + 1, frame=an.frame_at[pos], fn=an.fn_at[pos],
+                depth=an.depth_at[pos], loop_counters=an.loop_counters, declared=an.declared,
+                origin=max((ins.origin for ins in prog), default=0) + 1,
+                strict=bool(strict_stack) and strict_stack[-1])
+        # Fresh labels must not collide with labels already in the program.
+        used = [int(lab[1:]) for ins in prog if (lab := getattr(ins.op, "label", None) or "")[:1] == "L"
+                and lab[1:].isdigit()]
+        b.labels = max(used, default=0)
+        return b
 
     def program(self) -> Program:
         return tuple(self.instrs)
