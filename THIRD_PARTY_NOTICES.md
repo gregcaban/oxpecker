@@ -7,14 +7,14 @@ reproduced under `docs/licenses/`.
 
 Copyright 2019 Google LLC. https://github.com/googleprojectzero/fuzzilli
 
-The generator modules `oxpecker/gen/generators/fz_objects.py`, `fz_control.py`, `fz_exotic.py`,
-`fz_api.py` and the templates in `oxpecker/gen/templates_fz.py` are Python ports of generators
-and program templates from `Sources/Fuzzilli/CodeGen/CodeGenerators.swift`,
-`ProgramTemplates.swift` and `JavaScriptEnvironment.swift`, adapted to emit JavaScript source
-text through oxpecker's `ProgramBuilder` (whose method surface is modelled on Fuzzilli's
-`ProgramBuilder.swift`) and restricted to what Rhino supports. Several generators in the other
-`oxpecker/gen/generators/*.py` modules follow the same catalogue in spirit. No Swift source is
-copied. Licence text: `docs/licenses/Apache-2.0.txt`.
+oxpecker's generation layer is being rebuilt from Fuzzilli's design: its intermediate language
+(FuzzIL: `Sources/Fuzzilli/FuzzIL/`), `ProgramBuilder`, code generators and program templates
+(`Sources/Fuzzilli/CodeGen/`), JavaScript lifter (`Sources/Fuzzilli/Lifting/`) and mutators
+(`Sources/Fuzzilli/Mutators/`), translated to Python and restricted to what Rhino supports. Every
+file derived from Fuzzilli carries an attribution header naming the Fuzzilli source it follows.
+Reference checkout: Fuzzilli commit `be2811d00282320381fc8007d64873745772011d` (2026-10-13). (The
+earlier ports, `oxpecker/gen/generators/fz_*.py` and `templates_fz.py`, were removed on 2026-10-25
+with the old generation layer.) Licence text: `docs/licenses/Apache-2.0.txt`.
 
 ## test262 — BSD licence
 
