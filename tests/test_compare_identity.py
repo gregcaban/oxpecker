@@ -26,3 +26,9 @@ def test_unsupported_in_both_modes_is_skipped():
     assert compare(a, b).kind == SKIP
     c = Outcome(mode="compiled", status="ok", value="1")
     assert compare(a, c).kind == HARD            # one mode finished, the other could not: still a finding
+
+
+def test_java_trace_identity_hashes_are_canonicalised_too():
+    a = Outcome(mode="interpreted", status="ok", javaTrace=['typeOf("dev.oxpecker.harness.JavaProbe@ef2de") -> "String"'])
+    b = Outcome(mode="compiled", status="ok", javaTrace=['typeOf("dev.oxpecker.harness.JavaProbe@a7df") -> "String"'])
+    assert compare(a, b).kind == EQUAL

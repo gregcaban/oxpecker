@@ -90,9 +90,9 @@ def canon_identity(s: str | None) -> str | None:
 def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_messages: bool = False) -> Verdict:
     """Compares the outcome of one mode against another (a is the reference, usually interpreted)."""
     a = replace(a, value=canon_identity(a.value), trace=[canon_identity(t) for t in a.trace],
-                output=[canon_identity(t) for t in a.output])
+                output=[canon_identity(t) for t in a.output], javaTrace=[canon_identity(t) for t in a.javaTrace])
     b = replace(b, value=canon_identity(b.value), trace=[canon_identity(t) for t in b.trace],
-                output=[canon_identity(t) for t in b.output])
+                output=[canon_identity(t) for t in b.output], javaTrace=[canon_identity(t) for t in b.javaTrace])
     reasons: list[str] = []
     jdiff: list[str] = []
     first_diff: int | None = None
