@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from oxpecker.il.analysis import ActivationReason, analyse
+from oxpecker.il import ops
+from oxpecker.il.analysis import ActivationReason, RhinoType, analyse
 from oxpecker.il.builder import Builder
 from oxpecker.il.environment import Keys
 from oxpecker.il.lift import js
@@ -24,12 +25,14 @@ BIT_OR, ADD, MUL = BinaryOperator.BIT_OR, BinaryOperator.ADD, BinaryOperator.MUL
 
 # Body shapes for a local `x` computed from the parameter `p`: (make, number_var, observed).
 # `number_var` is what the model (Block.findExpressionType, design §5.3) must say about `x`;
-# `observed` is the Java class of `x` at a probe in the compiled, optimizer-run function:
+# `observed` is the Java class of `x` at a probe in the compiled, optimizer-run function, and
+# what `RhinoModel.expr_type` must predict (NUMBER, ANY, MIXED; G32):
 #   "double"  a number variable lives in a Java double and is boxed as Double at the boundary;
 #   "same"    an AnyType local computed without numeric operands is boxed like the activation copy;
 #   "mixed"   an AnyType local whose expression has a NumberType operand: Codegen emits the
 #             ScriptRuntime.add(Object, double) overload, a Double, where the activation copy
-#             (no optimizer pass, no ISNUMBER marks) keeps Integer + Integer as an Integer.
+#             (no optimizer pass, no ISNUMBER marks) keeps Integer + Integer as an Integer
+#             (`RhinoType.MIXED`).
 # Measured against Rhino b95f75d on 2026-10-26 (interpreted: Double for every arithmetic result,
 # Integer for a literal or a parameter).
 SHAPES = {
@@ -73,16 +76,29 @@ def _probed_types(o) -> tuple[str, str]:
     return tuple(t.split(" | ")[1] for t in o.traceJavaTypes)
 
 
+PREDICTION = {RhinoType.NUMBER: "double", RhinoType.ANY: "same", RhinoType.MIXED: "mixed"}
+
+
+def _local_x(an, f_index: int):
+    """The `x` local of f: the Declare in f's body."""
+    return next(v for v, d in sorted(an.defs.items(), key=lambda kv: kv[1])
+                if an.function_of[d] == f_index and d > f_index and isinstance(an.code[d].op, ops.Declare))
+
+
 @pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_model_predictions_on_the_pair(shape):
+    """`number_var` and `expr_type` say what the probes will show (G32): NUMBER -> a Double,
+    ANY -> like the activation copy, MIXED -> a Double from `add(Object, double)`."""
     code, f, g = _pair(shape)
     an = analyse(code)
     f_index, g_index = an.defs[f], an.defs[g]
     assert an.rhino.optimizer_runs(f_index)
     assert not an.rhino.optimizer_runs(g_index)
     assert an.rhino.activation[g_index] == (ActivationReason.ARGUMENTS,)
-    locals_of_f = [v for v, d in an.defs.items() if an.function_of[d] == f_index and d > f_index]
-    assert any(v in an.rhino.number_var for v in locals_of_f) == SHAPES[shape][1]
+    x = _local_x(an, f_index)
+    _, number_var, observed = SHAPES[shape]
+    assert (x in an.rhino.number_var) == number_var
+    assert PREDICTION[an.rhino.expr_type[an.defs[x]]] == observed
 
 
 @pytest.mark.slow

@@ -306,3 +306,18 @@ and reached 16 699 probes; ten minutes without compaction ran 2 139 (3.6 runs/s)
 adds an entry, so compaction costs its budget almost every iteration (proposal §5.3 item 3).
 Keep `--compact-budget 0` until entries are rare, or compact in a separate pass over an
 existing corpus.
+
+**G46. Arithmetic operands keep Symbols and mixed BigInts out most of the time.** A Symbol throws
+in every arithmetic, relational and string conversion, a BigInt throws when mixed with a Number;
+the completion test showed them behind most TypeErrors of the operations family (72 %).
+`strategies.operand()` draws a value that is neither (or another BigInt when the other side is
+one) with p=0.85 and any value otherwise, and the unary, binary, ternary, compare,
+number_computation, template_string and number_conversion generators use it where the throw
+would be certain. Operations: 72 → 90 %. Type confusion stays in the mix at a rate the
+completion rate can afford, which is the same trade-off as G38.
+
+**G47. `RhinoModel.expr_type` says MIXED for an ADD with one NumberType operand** (closes the
+refinement G32 left open): AnyType to Rhino's optimizer, so not a number variable, but Codegen
+emits `ScriptRuntime.add(Object, double)` and the value is a Double at a boundary where the
+activation copy keeps an Integer. `test_rhino_model.py` now checks the model's prediction
+against the probes for every shape instead of carrying the observation in the test.

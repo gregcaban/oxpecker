@@ -11,7 +11,7 @@ from hypothesis import strategies as st
 
 from ..builder import Builder
 from ..environment import methods_of
-from ..ops import Context, Parameters, LoadBuiltin
+from ..ops import Context, Declare, LoadBuiltin, Parameters
 from ..program import Var
 from ..strategies import arguments_for, generator, maybe, nested, pick, variable
 from ..types import ANY, ARRAY, FUNCTION, NUMBER, OBJECT, STRING, Type
@@ -96,9 +96,25 @@ def function_call(draw, b: Builder, f: Var) -> Var | None:
     return b.call_function(f, draw(arguments_for(b, f)), optional=draw(maybe(0.05)))
 
 
+def defining_builtin(b: Builder, v: Var):
+    """The `Builtin` behind `v` when it is a builtin, possibly through `let f = WeakMap`-style
+    declarations; None otherwise."""
+    seen = 0
+    while v in b.defs and seen < 8:
+        op = b.code[b.defs[v]].op
+        if isinstance(op, LoadBuiltin):
+            return op.builtin
+        if isinstance(op, Declare):
+            v = b.code[b.defs[v]].input(0)
+            seen += 1
+            continue
+        return None
+    return None
+
+
 def not_callable(b: Builder, f: Var) -> bool:
-    definition = b.code[b.defs[f]].op if f in b.defs else None
-    return isinstance(definition, LoadBuiltin) and definition.builtin.calls is None and definition.builtin.constructs is not None
+    builtin = defining_builtin(b, f)
+    return builtin is not None and builtin.calls is None and builtin.constructs is not None
 
 
 @generator("constructor_call", family="calls", weight=20, inputs=(FUNCTION,), source="CodeGenerators.swift:2347")
@@ -107,8 +123,8 @@ def constructor_call(draw, b: Builder, c: Var) -> Var | None:
     """`new C(args)`; a builtin the registry knows is not constructible (Symbol, BigInt) is skipped."""
     if not b.type_of(c).MayBe(FUNCTION):
         return None
-    definition = b.code[b.defs[c]].op if c in b.defs else None
-    if isinstance(definition, LoadBuiltin) and definition.builtin.constructs is None and definition.builtin.calls is not None:
+    builtin = defining_builtin(b, c)
+    if builtin is not None and builtin.constructs is None and builtin.calls is not None:
         return None
     return b.construct(c, draw(arguments_for(b, c)))
 

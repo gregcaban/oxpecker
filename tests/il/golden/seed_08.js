@@ -25,49 +25,51 @@ o14[o5] = f8;
 __probe("step", n16, arr15, o14, f8, o5, arr3);
 // [number_computation]
 const o17 = Math;
-let n18 = 4294967296;
-let n20 = o17.min(n18, 64);
-let n21 = o17.min("򄵵ÅMþ", n20);
-let n22 = 64 * "򄵵ÅMþ";
-const n23 = +n22;
-var n24 = o17.pow(n21, n22);
-var b25 = !64;
-o17.max(b25, n22);
-__probe("step", b25, n24, n23, n22, n21, n20);
+let n18 = 64;
+let n20 = 3.0;
+let n21 = o17.round(16);
+let n22 = n20 ** arr3;
+const n23 = ~arr3;
+var n24 = o17.sqrt(n23);
+var b25 = !n23;
+const n27 = o17.max(o17.pow(b25, 16), n23);
+__probe("step", n27, b25, n24, n23, n22, n21);
 // [type_test]
-const s27 = typeof n21;
-var s28 = "symbol";
-s27 === s28;
-__probe("step", s28, s27, b25, n24, n23, n22);
-function f31(p32, p33, p34) {
+var s28 = typeof n22;
+s28 === "symbol";
+__probe("step", s28, n27, b25, n24, n23, n22);
+function f32(p33, p34, p35) {
     parseFloat >> undefined;
-    return p33;
+    return p34;
 }
-function f36(p37, ...p38) {
+function f37(p38, ...p39) {
     o5.add(f2);
-    let n41 = 0;
-    while (n41 < 0) {
-        let n45 = 9007199254740991;
-        var n48 = n45 - -127;
-        var s50 = J.typeOf(n48);
-        var s51 = s50;
-        const v52 = J.echo(n48);
-        var v53 = v52;
-        const n55 = n41++;
+    let n42 = 0;
+    while ((() => {
+        let b44 = n42 < 0;
+    return b44;
+})()) {
+        var n49 = 9007199254740991 - -127;
+        var o50 = J;
+        var s52 = o50.typeOf(n49);
+        var v54 = o50.echo(n49);
+        const f55 = parseInt;
+        n42++;
     }
-    let n57 = 28;
-    let o58 = new Uint8Array(n57);
-    n24 || o14;
-    var n60 = f31(arr15, n20, n18);
-    return n20;
+    let f57 = Uint8Array;
+    let n58 = 28;
+    new f57(n58);
+    var v60 = b25 || o14;
+    f32(arr15, n21, n18);
+    return n21;
 }
-for (let i61 = 0; i61 < 10; i61++) {
-    f31(arr15, n23, n16);
+for (let i62 = 0; i62 < 10; i62++) {
+    var n64 = f32(arr15, n24, n16);
 }
-for (let i64 = 0; i64 < 100; i64++) {
-    var n66 = f36(n23, "-0");
+for (let i65 = 0; i65 < 100; i65++) {
+    var n67 = f37(n23, "-0");
 }
-__probe("warm", f36, f31, s28, s27, b25, n24);
-var n67 = f36(f36, s27);
-let n68 = f31(arr15, n20, n16);
-__probe("end", n68, n67, f36, f31, s28, s27);
+__probe("warm", f37, f32, s28, n27, b25, n24);
+let n68 = f37(f37, s28);
+var n69 = f32(arr15, n21, n16);
+__probe("end", n69, n68, f37, f32, s28, n27);

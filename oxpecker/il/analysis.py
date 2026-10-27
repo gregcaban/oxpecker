@@ -91,9 +91,11 @@ class ActivationReason(Enum):          # Rhino b95f75d, see docs §5.3
     SUPER = "super (IRFactory.java:205)"
 
 
-class RhinoType(Enum):                 # Optimizer.java:15-17
-    NUMBER = "number"
-    ANY = "any"
+class RhinoType(Enum):                 # Optimizer.java:15-17, plus what Codegen does with a mix (G32)
+    NUMBER = "number"                  # NumberType: a number variable lives in a Java double
+    ANY = "any"                        # AnyType: computed and boxed like unoptimised code
+    MIXED = "mixed"                    # AnyType to the optimizer, but an ADD with one NumberType operand:
+                                       # Codegen calls ScriptRuntime.add(Object, double), a Double at a boundary
 
 
 @dataclass
@@ -939,7 +941,7 @@ def rhino_model(code: Sequence[Instruction], storage: Mapping[Var, Storage], def
         while changed:
             changed = False
             for v in list(current):
-                if any(_rhs_type(code, a, v, current, storage, defs) is RhinoType.ANY for a in assignments.get(v, [])):
+                if any(_rhs_type(code, a, v, current, storage, defs) is not RhinoType.NUMBER for a in assignments.get(v, [])):
                     current.discard(v)
                     changed = True
         number_vars |= current
@@ -1014,7 +1016,9 @@ def _var_or_expr(code, v: Var, number_vars: set[Var], storage, defs) -> RhinoTyp
 
 def _binary_rhino(op: O.BinaryOperator, a: RhinoType, b: RhinoType) -> RhinoType:
     if op is O.BinaryOperator.ADD:
-        return RhinoType.NUMBER if a is RhinoType.NUMBER and b is RhinoType.NUMBER else RhinoType.ANY
+        if a is RhinoType.NUMBER and b is RhinoType.NUMBER:
+            return RhinoType.NUMBER
+        return RhinoType.MIXED if RhinoType.NUMBER in (a, b) else RhinoType.ANY
     if op in O.ARITHMETIC or op in O.BITWISE:
         return RhinoType.NUMBER
     if op in (O.BinaryOperator.LOGIC_AND, O.BinaryOperator.LOGIC_OR):

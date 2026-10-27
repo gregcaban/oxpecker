@@ -1,66 +1,99 @@
 // [builtin_object_instance]
 var arr2 = new Array(8);
-var f4 = WeakMap;
-var o5 = new f4();
+// [bigint]
+const big3 = 10n;
+// [builtin_object_instance]
+let f4 = WeakMap;
+const o5 = new f4();
 // [typed_array]
-let n7 = 37;
-const o8 = new Float32Array(n7);
-__probe("step", o8, n7, o5, f4, arr2);
+var o8 = new Float32Array(37);
+__probe("step", o8, o5, f4, big3, arr2);
 // [repeat_loop]
 for (var i9 = 0; i9 < 23; i9++) {
-    o5.__proto__;
+    let v11 = o5.__proto__;
 }
-__probe("step", o8, n7, o5, f4, arr2);
+__probe("step", o8, o5, f4, big3, arr2);
 // [builtin_object_instance]
-new Date();
-__probe("step", o8, n7, o5, f4, arr2);
+const f12 = Date;
+new f12();
+__probe("step", f12, o8, o5, f4, big3, arr2);
+// [int_array]
+let arr14 = [-1, 3, 1, 7, 4, 2147483647, 3221225471, 7, 10, 8];
+__probe("step", arr14, f12, o8, o5, f4, big3);
 // [number_computation]
-[-1, 3, 1, 7, 4, 2147483647, 3221225471, 7, 10, 8];
-const n18 = 8 >>> 8;
-let b19 = !10n;
-const n20 = -n18;
-!n18;
-var n22 = Math.abs(n20);
-var b23 = !n20;
-let n24 = ~b23;
-__probe("step", n24, b23, n22, n20, b19, n18);
+const o15 = Math;
+var n17 = Array >>> Array;
+var b18 = !f4;
+let n19 = -n17;
+!b18;
+let n21 = o15.abs(n19);
+let b22 = !n19;
+let n23 = ~b22;
+__probe("step", n23, b22, n21, n19, b18, n17);
 // [array]
-const arr25 = [n22, b23, Array, 0, 8];
-__probe("step", arr25, n24, b23, n22, n20, b19);
+const arr24 = [n21, b22, Array, o15, 8];
+__probe("step", arr24, n23, b22, n21, n19, b18);
 // [builtin]
-let f27 = escape;
-__probe("step", f27, arr25, n24, b23, n22, n20);
-function f28(p29, ...p30) {
-    const b31 = arr2.includes();
-    var s33 = " 1";
-    let n35 = p30 << Symbol(s33);
-    +n18;
-    let s37 = "7n";
-    let n38 = 0x14f9;
-    let n39 = Symbol << 1.5;
-    return b19;
+const f26 = escape;
+__probe("step", f26, arr24, n23, b22, n21, n19);
+function f27(p28, ...p29) {
+    let b30 = arr2.includes();
+    const f31 = Symbol;
+    const s32 = " 1";
+    f31(s32);
+    const n34 = p29 << s32;
+    const n36 = 1.5 >>> (b18 ^ 1.5);
+    var o38 = {
+        __proto__: arr24,
+        m() {
+            super[1] = f4;
+        },
+    };
+    let s39 = "m";
+    let v40 = o38[s39]();
+    var arr41 = [o8, p29, p28];
+    return arr14;
 }
-for (let i40 = 0; i40 < 100; i40++) {
-    const b42 = f28(arr25, f28);
+for (let i42 = 0; i42 < 100; i42++) {
+    var arr44 = f27(arr14, Float32Array);
 }
-__probe("warm", f28, f27, arr25, n24, b23, n22);
-// [number_computation]
-const n44 = 2147483646;
-let n45 = 1.0;
-const n46 = -b23;
-const n47 = b23 ** b23;
-__probe("step", n47, n46, n45, n44, f28, f27);
-// [builtin_object_instance]
-const o49 = new WeakSet();
-__probe("step", o49, n47, n46, n45, n44, f28);
-// [super_property_update]
-var o51 = {
-    __proto__: o8,
-    m() {
-        super.foo ||= 1.5;
-    },
+__probe("warm", f27, f26, arr24, n23, b22, n21);
+// [java_numeric_pipeline]
+var f46 = function (p47, p48) {
+    let n49 = p47 + p48;
+    var n50 = n49;
+    const s52 = J.typeOf(n50);
+    var n53 = n50 * p47;
+    n50 = n53;
+    const s55 = J.typeOf(n50);
+    n50++;
+    let s57 = J.typeOf(n50);
+    var v58 = J.echo(n50);
+    return [s52, s55, s57, v58, J.over(n50)];
 };
-const v53 = o51["m"]();
-__probe("step", v53, o51, o49, n47, n46, n45);
-let b54 = f28(arr25, Array);
-__probe("changed", b54, v53, o51, o49, n47, n46);
+var n61 = 128;
+let arr65 = f46(-n61, -256);
+const arr66 = arr65;
+let n67 = 3;
+const arr69 = f46(n67, 3);
+const arr70 = arr69;
+const n71 = 0.0;
+let arr72 = f46(n71, arr24);
+const arr73 = arr72;
+__probe("step", arr73, arr72, n71, arr70, arr69, n67);
+// [java_overload]
+var o74 = J;
+try {
+    var s76 = o74.over(n67);
+} catch (e77) {
+    var v79 = e77.name;
+}
+__probe("step", o74, arr73, arr72, n71, arr70, arr69);
+// [property_configuration]
+o8[arr2];
+Object.defineProperty(arr24, "length", { configurable: true, get: f27, set: f12 });
+__probe("step", o74, arr73, arr72, n71, arr70, arr69);
+// [builtin_object_instance]
+new WeakMap();
+__probe("step", o74, arr73, arr72, n71, arr70, arr69);
+f27(arr72, f46);

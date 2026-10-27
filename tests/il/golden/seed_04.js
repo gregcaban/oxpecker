@@ -43,47 +43,44 @@ function f18(p19, p20, p21, p22) {
     const s27 = "m";
     var v28 = o26[s27]();
     p20 /= n12;
-    const n33 = Math.pow(p21, 4);
-    const n34 = Math.min(1000000000000.0, 4);
-    let n35 = Math.min(p21, n34);
-    var b36 = !n4;
-    var n37 = b36 << b36;
+    Math.pow(p21, 1);
+    const n33 = Math.min(1000000000000.0, 1);
+    const n34 = Math.min(p21, n33);
+    let b35 = !n4;
+    var n36 = b35 << b35;
+    var o37 = {};
     var o38 = {};
     var o39 = {};
     var o40 = {};
-    var o41 = {};
-    o38.a = n2;
-    o39.a = o41;
-    o39.d = o41;
-    o40.a = n37;
-    o40.d = o8;
-    o40.m = p19;
-    o41.a = n34;
-    o41.d = Math;
-    o41.y = o8;
+    o37.a = n2;
+    o38.a = o40;
+    o38.d = o40;
+    o39.a = n36;
+    o39.d = o8;
+    o39.m = v17;
+    o40.a = n33;
+    o40.d = v28;
+    o40.y = o8;
     return v28;
 }
-function f43(p44, p45, p46, p47) {
-    p47 = n2;
-    const v48 = v10(n12);
-    [4096];
-    p44 = f6;
-    f6 = p47;
-    p47 = f6;
-    p44 = n3;
-    return v48;
+function f42(p43, p44, p45, p46) {
+    p46 = n2;
+    var v47 = v10(n12);
+    const arr48 = [4096];
+    p43 = f6;
+    f6 = p46;
+    p46 = f6;
+    p43 = n3;
+    return v47;
 }
-for (let i50 = 0; i50 < 10; i50++) {
-    let arr52 = [];
-    let v53 = f18(v17, n4, n4, arr52);
+for (let i49 = 0; i49 < 10; i49++) {
+    let v52 = f18(v17, n4, n4, []);
 }
-for (let i54 = 0; i54 < 10; i54++) {
-    var arr56 = [undefined];
-    const v57 = f43(arr56, n4, arr56, f18);
+for (let i53 = 0; i53 < 10; i53++) {
+    let arr55 = [undefined];
+    var v56 = f42(arr55, n4, arr55, f18);
 }
-__probe("warm", f43, f18, v17, o15, o13, n12);
-// [array]
-f43(v10, v17, o8, Uint8ClampedArray);
-var arr59 = [0.5];
-f18(o13, n3, 0.5, arr59);
-__probe("end", arr59, f43, f18, v17, o15, o13);
+__probe("warm", f42, f18, v17, o15, o13, n12);
+const v57 = f42(v10, v17, o8, Uint8ClampedArray);
+var v59 = f18(o13, n3, 0.5, [0.5]);
+__probe("end", v59, v57, f42, f18, v17, o15);

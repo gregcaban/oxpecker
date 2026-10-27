@@ -320,7 +320,7 @@ def test_number_vars_follow_rhino_rules():
         I(ops.BinaryOperation(B.MUL), 3, 4, 5),
         I(ops.Reassign(), 3, 5),                      # n = n * 2        -> number var
         I(ops.BinaryOperation(B.ADD), 1, 2, 6),
-        I(ops.Declare(DK.VAR), 6, 7),                 # m = a + 1        -> any (parameter)
+        I(ops.Declare(DK.VAR), 6, 7),                 # m = a + 1        -> mixed (parameter + literal), not a number var
         I(ops.LoadBigInt(1), 8),
         I(ops.Declare(DK.VAR), 8, 9),                 # b = 1n           -> any
         I(ops.UnaryOperation(U.MINUS), 9, 10),
@@ -335,7 +335,8 @@ def test_number_vars_follow_rhino_rules():
     r = an.rhino
     assert r.activation[0] == ()
     assert r.number_var == {3, 11}
-    assert r.expr_type[4] is RhinoType.NUMBER and r.expr_type[6] is RhinoType.ANY and r.expr_type[10] is RhinoType.NUMBER
+    assert r.expr_type[4] is RhinoType.NUMBER and r.expr_type[10] is RhinoType.NUMBER
+    assert r.expr_type[6] is RhinoType.MIXED        # a + 1: AnyType to the optimizer, add(Object, double) in Codegen (G32)
 
 
 def test_activation_reasons():

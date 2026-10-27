@@ -67,7 +67,7 @@ MUST_EMIT: dict[str, tuple[tuple[type, ...], tuple[type, ...]]] = {
     "direct_call_arity": ((ops.BeginPlainFunction, ops.CallFunction), (ops.Reassign,)),
     "callsite_relink": ((ops.BeginRepeatLoop, ops.CallFunction), ()),
     "property_site_shape_change": ((ops.GetProperty, ops.BeginRepeatLoop), (ops.DeleteProperty, ops.Reassign)),
-    "string_concat_chain": ((ops.Update, ops.BeginRepeatLoop), (ops.Compare, ops.GetElement, ops.CallMethod, ops.CallFunction)),
+    "string_concat_chain": ((ops.Update, ops.BeginRepeatLoop), (ops.CallMethod,)),
     "int32_boundary_arith": ((ops.Declare, ops.BinaryOperation, ops.Compare), ()),
     "super_in_object_literal": ((ops.ObjectLiteralSetPrototype, ops.BeginObjectLiteralMethod), (ops.GetSuperProperty, ops.GetComputedSuperProperty)),
     "const_site": ((ops.Declare,), (ops.BinaryOperation,)),

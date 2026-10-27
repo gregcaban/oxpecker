@@ -30,7 +30,7 @@ ONLY = frozenset(os.environ.get("OXPECKER_FAMILIES", "").split(",")) - {""}     
 FLOORS: dict[str, float] = {
     "all": 0.50,
     "values": 0.90,
-    "operations": 0.60,
+    "operations": 0.75,       # 90 % after G46
     "calls": 0.60,
     "control": 0.75,
     "compiler-targeted": 0.80,

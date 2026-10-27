@@ -11,11 +11,12 @@ from hypothesis import strategies as st
 
 from ..builder import Builder
 from ..environment import INTERESTING_FLOATS, INTERESTING_INTEGERS, INTERESTING_STRINGS, JS_TYPE_NAMES, Builtins, Methods
-from ..ops import BinaryOperator, Comparator, Radix, UnaryOperator
+from ..ops import LOGICAL, BinaryOperator, Comparator, Radix, UnaryOperator
 from ..program import Var
-from ..strategies import assignable, generator, maybe, pick, variable
-from ..types import ANY, BOOLEAN, FUNCTION, INTEGER, NUMBER, OBJECT, STRING, Type
+from ..strategies import assignable, generator, maybe, operand, pick, poisons_arithmetic, variable
+from ..types import ANY, BIGINT, BOOLEAN, FUNCTION, INTEGER, NUMBER, OBJECT, STRING, SYMBOL, Type
 
+RELATIONAL = (Comparator.LESS, Comparator.LESS_EQUAL, Comparator.GREATER, Comparator.GREATER_EQUAL)
 MATH_UNARY = (Methods.MATH_ABS, Methods.MATH_FLOOR, Methods.MATH_SQRT, Methods.MATH_ROUND, Methods.MATH_TRUNC)
 MATH_BINARY = (Methods.MATH_IMUL, Methods.MATH_MAX, Methods.MATH_MIN, Methods.MATH_POW)
 
@@ -23,33 +24,54 @@ MATH_BINARY = (Methods.MATH_IMUL, Methods.MATH_MAX, Methods.MATH_MIN, Methods.MA
 @generator("unary", family="operations", weight=10, inputs=(ANY,), source="CodeGenerators.swift:2463")
 @st.composite
 def unary(draw, b: Builder, x: Var) -> Var:
-    """A unary operator on a value; increments need an assignable variable."""
+    """A unary operator on a value; increments need an assignable variable; `-`, `+`, `~` get an
+    arithmetic operand (a Symbol or BigInt there throws)."""
     op = draw(st.sampled_from(UnaryOperator))
     if op.reassigns_input:
         x = draw(assignable(b, NUMBER))
+    elif op in (UnaryOperator.MINUS, UnaryOperator.PLUS, UnaryOperator.BITWISE_NOT) and poisons_arithmetic(b, x):
+        x = draw(operand(b))
     return b.unary(op, x)
 
 
 @generator("binary", family="operations", weight=40, inputs=(ANY, ANY), source="CodeGenerators.swift:2467")
 @st.composite
 def binary(draw, b: Builder, lhs: Var, rhs: Var) -> Var:
-    """`lhs op rhs` for a drawn binary operator."""
-    return b.binary(lhs, rhs, draw(st.sampled_from(BinaryOperator)))
+    """`lhs op rhs` for a drawn binary operator; a Symbol or a BigInt mixed with a Number on either
+    side is replaced by an arithmetic operand most of the time (G46)."""
+    op = draw(st.sampled_from(BinaryOperator))
+    if op not in LOGICAL:
+        if poisons_arithmetic(b, lhs):
+            lhs = draw(operand(b))
+        if poisons_arithmetic(b, rhs) or (b.type_of(lhs).Is(BIGINT) != b.type_of(rhs).Is(BIGINT)):
+            rhs = draw(operand(b, like=lhs))
+    return b.binary(lhs, rhs, op)
 
 
 @generator("ternary", family="operations", weight=5, inputs=(ANY, ANY), source="CodeGenerators.swift:2471")
 @st.composite
 def ternary(draw, b: Builder, lhs: Var, rhs: Var) -> Var:
     """`lhs cmp rhs ? lhs : rhs`."""
-    cond = b.compare(lhs, rhs, draw(st.sampled_from(Comparator)))
+    op = draw(st.sampled_from(Comparator))
+    if op in RELATIONAL and poisons_arithmetic(b, lhs):
+        lhs = draw(operand(b))
+    if op in RELATIONAL and poisons_arithmetic(b, rhs):
+        rhs = draw(operand(b, like=lhs))
+    cond = b.compare(lhs, rhs, op)
     return b.ternary(cond, lhs, rhs)
 
 
 @generator("compare", family="operations", weight=10, inputs=(ANY, ANY), source="CodeGenerators.swift:2580")
 @st.composite
 def compare(draw, b: Builder, lhs: Var, rhs: Var) -> Var:
-    """A relational or equality comparison."""
-    return b.compare(lhs, rhs, draw(st.sampled_from(Comparator)))
+    """A relational or equality comparison; a relational one on a Symbol throws, so Symbols are
+    swapped out of those most of the time (G46)."""
+    op = draw(st.sampled_from(Comparator))
+    if op in RELATIONAL and poisons_arithmetic(b, lhs):
+        lhs = draw(operand(b))
+    if op in RELATIONAL and poisons_arithmetic(b, rhs):
+        rhs = draw(operand(b, like=lhs))
+    return b.compare(lhs, rhs, op)
 
 
 @generator("update", family="operations", weight=20, source="CodeGenerators.swift:2477")
@@ -114,7 +136,7 @@ def in_(draw, b: Builder, obj: Var) -> Var:
 def number_computation(draw, b: Builder) -> Var:
     """A few steps of arithmetic, unary operators and Math calls over visible values and fresh literals."""
     math = b.builtin(Builtins.MATH)
-    values = draw(st.lists(variable(b), min_size=1, max_size=3))
+    values = draw(st.lists(operand(b), min_size=1, max_size=3))
     values += [b.load_int(draw(st.sampled_from(INTERESTING_INTEGERS))) for _ in range(draw(st.integers(1, 2)))]
     if draw(maybe(0.5)):
         values.append(b.load_float(draw(st.sampled_from(INTERESTING_FLOATS))))
@@ -154,8 +176,9 @@ def int32_coerce(draw, b: Builder) -> Var:
 @generator("template_string", family="operations", weight=1, produces=STRING, source="CodeGenerators.swift:1615")
 @st.composite
 def template_string(draw, b: Builder) -> Var:
-    """A template literal interpolating visible values between drawn string parts."""
-    values = draw(st.lists(variable(b), max_size=3))
+    """A template literal interpolating visible values between drawn string parts (a Symbol
+    cannot be converted to a string: an arithmetic operand instead)."""
+    values = draw(st.lists(operand(b), max_size=3))
     parts = [draw(st.sampled_from(INTERESTING_STRINGS)) for _ in range(len(values) + 1)]
     return b.create_template(parts, values)
 
@@ -174,7 +197,9 @@ def concatenated_string(draw, b: Builder, s: Var) -> Var:
 @generator("number_conversion", family="operations", weight=3, inputs=(ANY,), produces=NUMBER)
 @st.composite
 def number_conversion(draw, b: Builder, x: Var) -> Var:
-    """`Number(x)`, `parseInt(x)`, `parseFloat(x)` or `+x`."""
+    """`Number(x)`, `parseInt(x)`, `parseFloat(x)` or `+x` (not on a Symbol: every one of them throws)."""
+    if b.type_of(x).Is(SYMBOL):
+        x = draw(operand(b))
     kind = draw(st.integers(0, 3))
     if kind == 0:
         return b.unary(UnaryOperator.PLUS, x)

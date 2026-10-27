@@ -414,6 +414,10 @@ prints the quality table.
 
 ## 8. Not there yet
 
+The loop's next design steps, with the measurements behind them, are in
+`docs/il-refactor-followup-work.md` (cache the parent lineage on extension, rebase at the step
+cap, `combine`'s share of the corpus, rejection statistics, compaction as a separate pass).
+
 Splice donors from the corpus were decided against (G44);
 the model's "mixed" expression type (G32); the remaining Fuzzilli translations listed in the
 handoff; the runtime-assisted mutators and Fuzzilli's minimizer are not ported by design (G24).

@@ -22,7 +22,7 @@ from .lift import LiftOptions, lift
 from .ops import Context, Lift
 from .options import TOGGLE_LET, GenOptions
 from .program import Instruction, Program, Var
-from .types import ANY, Type
+from .types import ANY, BIGINT, NUMBER, SYMBOL, Type
 
 # ------------------------------------------------------------------------------- primitives
 def pick(draw, xs: Sequence):
@@ -264,6 +264,29 @@ def _maker_for(t: Type) -> GeneratorSpec | None:
         if mt.Is(t):
             return spec
     return None
+
+
+def poisons_arithmetic(b: Builder, v: Var) -> bool:
+    """A Symbol throws in every arithmetic or relational operation and a BigInt throws when mixed
+    with a Number: the values the completion test showed behind most TypeErrors of the
+    operations family (G46)."""
+    t = b.type_of(v)
+    return t.Is(SYMBOL) or t.Is(BIGINT)
+
+
+@st.composite
+def operand(draw, b: Builder, like: Var | None = None) -> Var:
+    """A value for arithmetic: with p=0.85 one that is neither a Symbol nor a BigInt (unless
+    `like` is a BigInt, then another BigInt, which is the one legal mix); otherwise any value,
+    so type confusion stays in the mix at a rate the completion rate can afford (G46)."""
+    if like is not None and b.type_of(like).Is(BIGINT):
+        return draw(variable(b, BIGINT))
+    if not draw(maybe(0.85)):
+        return draw(variable(b))
+    clean = [v for v in b.pool(ANY).all if not poisons_arithmetic(b, v)]
+    if clean:
+        return pick(draw, clean)
+    return draw(variable(b, NUMBER))
 
 
 @st.composite
