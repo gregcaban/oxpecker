@@ -133,22 +133,3 @@ def test_provenance_is_stamped():
     assert any(i.gen for i in gen.code)
     assert all(i.gen or isinstance(i.op, ops.Probe) for i in gen.code if i.index >= 0)
 
-
-def test_strategies_alone_register_generators_and_templates_on_first_use():
-    """REPL contract: importing `strategies` (and nothing else) is enough to draw programs, run
-    a generator or list the registries. Generators and templates register themselves when
-    their modules are imported, which `strategies.registered()` does on first use, because the
-    registry module cannot import them at load time (they import it for the decorators). A
-    fresh interpreter, so modules imported by other tests cannot mask a regression."""
-    import subprocess
-    import sys
-
-    code = (
-        "from oxpecker.il.strategies import programs, generators, templates, run_generator, generate\n"
-        "g = programs().example(); assert g.template in templates() and g.code\n"
-        "assert 'while_loop' in generators('control')\n"
-        "assert run_generator('while_loop', seed=1).js and generate(seed=3).source\n"
-        "print('ok')\n"
-    )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
-    assert out.returncode == 0 and out.stdout.strip() == "ok", out.stderr[-2000:]

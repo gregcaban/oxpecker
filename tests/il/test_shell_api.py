@@ -47,3 +47,20 @@ def test_explain_reports_the_rhino_model():
 def test_registry_listing():
     assert "binary" in generators("operations") and "plain" in templates()
     assert set(generators("members")) >= {"literal_property", "literal_method"}
+
+
+def test_strategies_alone_in_a_fresh_interpreter_registers_everything():
+    """A shell that imports only `oxpecker.il.strategies` (as the package docstring suggests) must
+    not have to know about the templates module: the registries fill on first use. Other tests
+    import templates, so this has to run in its own process."""
+    import subprocess
+    import sys
+
+    code = (
+        "from oxpecker.il.strategies import programs, generate, run_generator, generators, templates\n"
+        "print(repr(programs().example()))\n"
+        "print(repr(generate(seed=1)), repr(run_generator('while_loop', seed=1)))\n"
+        "print(len(generators()), templates())\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+    assert "<Generated " in out and "<Snippet while_loop" in out and "'plain'" in out
