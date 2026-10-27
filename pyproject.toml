@@ -22,3 +22,4 @@ include = ["oxpecker*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: needs the harness and runs many programs through Rhino"]
