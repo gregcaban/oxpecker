@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+
+from dataclasses import replace, dataclass, field
 
 from .client import Outcome, RunResult
 
@@ -76,8 +78,21 @@ def _thrown_sig(o: Outcome) -> tuple[str | None, str | None]:
     return (o.thrown.get("name"), o.thrown.get("value"))
 
 
+_IDENTITY_HASH = re.compile(r"((?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*)@[0-9a-f]{1,8}\b")
+
+
+def canon_identity(s: str | None) -> str | None:
+    """`dev.oxpecker.harness.JavaProbe@3bde59e5` -> `...JavaProbe@`: a Java object's default
+    `toString` carries its identity hash, which differs between any two runs."""
+    return None if s is None else _IDENTITY_HASH.sub(r"\1@", s)
+
+
 def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_messages: bool = False) -> Verdict:
     """Compares the outcome of one mode against another (a is the reference, usually interpreted)."""
+    a = replace(a, value=canon_identity(a.value), trace=[canon_identity(t) for t in a.trace],
+                output=[canon_identity(t) for t in a.output])
+    b = replace(b, value=canon_identity(b.value), trace=[canon_identity(t) for t in b.trace],
+                output=[canon_identity(t) for t in b.output])
     reasons: list[str] = []
     jdiff: list[str] = []
     first_diff: int | None = None
@@ -94,6 +109,10 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
     slow = {"timeout", "resource"}
     if a.status in slow and b.status in slow:
         return Verdict(DISCARD, [f"both {a.status}/{b.status}"])
+    if a.status == "unsupported" and b.status == "unsupported":
+        # neither mode ran the program to its end (a continuation captured across a non-JavaScript
+        # frame, or captured at all in the compiled mode): the partial traces differ by construction
+        return Verdict(SKIP, [f"both unsupported ({a.reason} / {b.reason})"])
     if a.status in slow or b.status in slow:
         o = a if a.status in slow else b
         return Verdict(SOFT, [f"{o.mode} {o.status} ({o.reason}) while {(b if o is a else a).mode} {(b if o is a else a).status}"])
@@ -191,6 +210,30 @@ def compare_run(run: RunResult, *, reference: str = "interpreted", strict_java_t
             worst.reasons.extend(r for r in v.reasons if r not in worst.reasons)
             worst.java_type_diff.extend(j for j in v.java_type_diff if j not in worst.java_type_diff)
     return worst or Verdict(EQUAL)
+
+
+_shell_client = None
+
+
+def run_and_compare(source: str, *, modes: tuple[str, ...] = ("interpreted", "compiled"), strict: bool = False,
+                    quiet: bool = False, **run_kwargs) -> tuple[Verdict, RunResult]:
+    """Run JavaScript source through the harness (one long-lived client per process) and compare
+    the modes; prints the verdict and outcomes unless `quiet`. For the shell and the tests."""
+    global _shell_client
+    from .client import HarnessClient
+
+    if _shell_client is None:
+        _shell_client = HarnessClient(quiet=True)
+        _shell_client.start()
+    run = _shell_client.run(source, modes=modes, strict=strict, **run_kwargs)
+    verdict = compare_run(run)
+    if not quiet:
+        print(verdict.pretty())
+        for mode, o in run.results.items():
+            print(f"  {mode:12} {o.status:10} value={o.value!r}" + (f" thrown={o.thrown}" if o.thrown else ""))
+            for t in o.trace:
+                print(f"      trace: {t}")
+    return verdict, run
 
 
 def _arg_diff(x: str, y: str) -> str:

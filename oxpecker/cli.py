@@ -5,8 +5,14 @@
   oxpecker corpus test262|rhino-jstests|rhino-mozilla [--filter PREFIX] [--limit N]   replay a corpus
   oxpecker probe                       refresh the Rhino capability table
 
-The generation commands (gen, fuzz, export, list) were removed on 2026-10-25 with the old generation
-layer; they return with the FuzzIL-based one (docs/proposal-hypothesis-ir.md).
+  oxpecker gen -o out/ -n 50 [--seed 1]  write N generated programs (.js, .plain.js, .il) to a directory
+  oxpecker gen -o out/ -n 50 --run     ... and run them through the harness
+  oxpecker gen -o out/ -n 50 --evolve 4  ... each case the end of a 4-step mutation lineage
+  oxpecker fuzz -o runs/c1 --seconds 600  the loop: coverage corpus of lineages, findings shrunk and recorded
+  oxpecker shrink finding.js           statement-level shrinking of a reproducer (writes finding.min.js)
+  oxpecker export -o ui/data --per-generator 20   sample every generator/template for the UI; oxpecker metrics DIR
+  oxpecker list [--family F] [--templates]   the registered generators (name, family, weight, doc)
+
 """
 
 from __future__ import annotations
@@ -236,6 +242,164 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 
 # ----------------------------------------------------------------------------- main
+# ----------------------------------------------------------------------------- generating
+def _gen_options(args: argparse.Namespace):
+    from .il.options import ALL_TOGGLES, GenOptions
+
+    kw: dict[str, Any] = {"strict": args.strict}
+    if args.max_statements is not None:
+        kw["max_statements"] = args.max_statements
+        kw["min_statements"] = min(GenOptions.min_statements, args.max_statements)
+    if args.max_depth is not None:
+        kw["max_depth"] = args.max_depth
+    if args.family:
+        kw["families"] = frozenset(args.family)
+    if args.generator:
+        kw["generators"] = frozenset(args.generator)
+    if args.without:
+        kw["toggles"] = ALL_TOGGLES - set(args.without)
+    if args.language_version:
+        kw["language_version"] = args.language_version
+    return GenOptions(**kw)
+
+
+def write_cases(out: Path, count: int, seed: int, options, *, template: str | None = None,
+                evolve: int = 0) -> list[Path]:
+    """Generate `count` programs from `seed` and write case_NNNN.js (probed), .plain.js, .il and
+    .meta.json into `out`. Returns the .js paths. Case k is `generate(seed + k)`, or with
+    `evolve` the end of `lineage(seed + k, steps=evolve)` (the steps are listed in the meta)."""
+    import oxpecker.il.templates  # noqa: F401  (registration)
+    from .il.mutate import evolved
+    from .il.program import dump
+    from .il.strategies import draw, programs
+
+    strategy = programs(options, template) if not evolve else evolved(options, evolve, base=None)
+    out.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for k in range(count):
+        gen = draw(strategy, seed + k)
+        stem = f"case_{k:04d}"
+        js = out / f"{stem}.js"
+        js.write_text(gen.source, encoding="utf-8")
+        (out / f"{stem}.plain.js").write_text(gen.plain_source, encoding="utf-8")
+        (out / f"{stem}.il").write_text(dump(gen.code) + "\n", encoding="utf-8")
+        used = sorted({i.gen for i in gen.code if i.gen})
+        steps = [s.name for s in getattr(gen, "steps", [])]
+        meta = {"seed": seed + k, "template": gen.template, "generators": used, "instructions": len(gen.code),
+                "mutations": steps,
+                "options": {"strict": options.strict, "max_statements": options.max_statements, "max_depth": options.max_depth,
+                            "toggles": sorted(options.toggles), "families": sorted(options.families or ()),
+                            "generators": sorted(options.generators or ())}}
+        (out / f"{stem}.meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+        paths.append(js)
+    return paths
+
+
+def cmd_gen(args: argparse.Namespace) -> int:
+    options = _gen_options(args)
+    out = Path(args.out)
+    t0 = time.time()
+    paths = write_cases(out, args.count, args.seed, options, template=args.template, evolve=args.evolve)
+    print(f"{len(paths)} programs in {out} ({time.time() - t0:.1f}s), seeds {args.seed}..{args.seed + len(paths) - 1}")
+    if not args.run:
+        return 0
+    results = run_paths([out], args)
+    hard = sum(1 for r in results.values() if r["verdict"]["kind"] == "hard")
+    return 1 if hard else 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    import oxpecker.il.templates  # noqa: F401
+    from .il.strategies import FAMILY_ORDER, REGISTRY, TEMPLATES
+
+    if args.templates:
+        for name in sorted(TEMPLATES):
+            t = TEMPLATES[name]
+            print(f"{name:28} weight {t.weight:3}  {t.doc.strip().splitlines()[0] if t.doc else ''}")
+        return 0
+    specs = sorted(REGISTRY.values(), key=lambda s: (FAMILY_ORDER.index(s.family) if s.family in FAMILY_ORDER else 99, s.rank, s.name))
+    family = None
+    for spec in specs:
+        if args.family and spec.family not in args.family:
+            continue
+        if spec.family != family:
+            family = spec.family
+            print(f"\n[{family}]")
+        first = spec.doc.strip().splitlines()[0] if spec.doc else ""
+        ctx = "" if spec.context.name == "JAVASCRIPT" else f" ctx={spec.context.name}"
+        inputs = "" if not spec.inputs else " inputs=" + ",".join(str(t) for t in spec.inputs)
+        print(f"  {spec.name:30} w{spec.weight:<3}{ctx}{inputs}  {first}")
+    return 0
+
+
+def cmd_shrink(args: argparse.Namespace) -> int:
+    """Statement-level delta debugging of a reproducer while its coarse verdict signature holds."""
+    from .harness.client import HarnessClient
+    from .harness.compare import compare_run
+    from .shrink import shrink_source
+
+    path = Path(args.path)
+    source = path.read_text(encoding="utf-8")
+    with HarnessClient(quiet=True) as client:
+        def verdict_of(src: str):
+            return compare_run(client.run(src, language_version=args.language_version, strict=args.strict, seed=1,
+                                          wall_ms=args.wall_ms))
+        v = verdict_of(source)
+        if not v.is_finding:
+            print(f"not a finding: {v.pretty()}", file=sys.stderr)
+            return 1
+        coarse = v.coarse_signature()
+        print(f"keeping: {coarse}", file=sys.stderr)
+        small = shrink_source(source, lambda src: verdict_of(src).coarse_signature() == coarse, budget=args.budget)
+        final = verdict_of(small)
+    out = path.with_name(path.stem + ".min.js") if args.out is None else Path(args.out)
+    out.write_text(small, encoding="utf-8")
+    print(f"{len(source.splitlines())} -> {len(small.splitlines())} lines: {out}\n{final.pretty()}")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    from . import inspector
+
+    options = _gen_options(args)
+    out = inspector.export(Path(args.out), per_generator=args.per_generator, per_template=args.per_template,
+                           seed=args.seed, options=options, language_version=args.language_version, coverage=args.coverage)
+    print(f"exported to {out}\n")
+    inspector.print_table(out / "metrics.json", worst=args.worst)
+    return 0
+
+
+def cmd_metrics(args: argparse.Namespace) -> int:
+    from . import inspector
+    inspector.print_table(Path(args.path) / "metrics.json", worst=args.worst)
+    return 0
+
+
+def cmd_fuzz(args: argparse.Namespace) -> int:
+    from . import findings
+    from .fuzz import fuzz
+    from .harness.client import HarnessClient
+
+    options = _gen_options(args)
+    with HarnessClient(quiet=True, coverage=True) as client:
+        if not client.info().get("coverage"):
+            print("coverage agent not attached: the harness build must include jacocoagent.jar", file=sys.stderr)
+            return 2
+        known = findings.known_signatures(client) if not args.ignore_known else set()
+        summary = fuzz(corpus_dir=Path(args.corpus), options=options, iterations=args.iterations, seconds=args.seconds,
+                       steps=args.steps, p_new=args.p_new, seed=args.seed, known=known,
+                       findings_dir=Path(args.findings_dir) if args.findings_dir else findings.DEFAULT_DIR,
+                       shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
+                       source_shrink_budget=args.source_shrink_budget,
+                       language_version=args.language_version, client=client, quiet=args.quiet)
+    print(json.dumps({k: v for k, v in summary.items() if k != "signatures"}, indent=1))
+    if summary["signatures"]:
+        print("hard signatures seen:")
+        for sig, n in sorted(summary["signatures"].items(), key=lambda kv: -kv[1]):
+            print(f"  {n:4}  {sig}")
+    return 0
+
+
 def _add_run_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--modes", default="interpreted,compiled")
     p.add_argument("--language-version", type=int, default=200, help="Rhino language version: 200=ES6, 250=ECMASCRIPT")
@@ -275,6 +439,79 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--context", type=int, default=60, help="characters of context around the first difference")
     _add_run_options(d)
     d.set_defaults(fn=cmd_diff)
+
+    g = sub.add_parser("gen", help="generate programs into a directory (and optionally run them)")
+    g.add_argument("-o", "--out", required=True, help="output directory")
+    g.add_argument("-n", "--count", type=int, default=20)
+    g.add_argument("--seed", type=int, default=0, help="seed of the first case; case k uses seed+k")
+    g.add_argument("--template", help="one template only (see `oxpecker list --templates`)")
+    g.add_argument("--family", action="append", help="restrict the pools to a family (repeatable)")
+    g.add_argument("--generator", action="append", help="restrict the pools to a generator (repeatable)")
+    g.add_argument("--without", action="append", help="disable a toggle: let, generators, for-of, destructuring, spread, continuations, with, eval")
+    g.add_argument("--max-statements", type=int)
+    g.add_argument("--max-depth", type=int)
+    g.add_argument("--strict", action="store_true", help="generate strict-mode programs")
+    g.add_argument("--evolve", type=int, default=0, metavar="K", help="write the end of a K-step mutation lineage per case")
+    g.add_argument("--run", action="store_true", help="run the written cases through the harness")
+    _add_run_options(g)
+    g.set_defaults(fn=cmd_gen)
+
+    fz = sub.add_parser("fuzz", help="the differential-testing loop: lineages, a coverage corpus, shrunk findings")
+    fz.add_argument("-o", "--corpus", required=True, help="corpus directory (corpus.jsonl, coverage.exec); resumed if present")
+    fz.add_argument("-n", "--iterations", type=int, help="stop after N runs")
+    fz.add_argument("--seconds", type=float, help="stop after this many seconds")
+    fz.add_argument("--steps", type=int, default=5, help="mutation steps per lineage at most (Fuzzilli: 5)")
+    fz.add_argument("--p-new", type=float, default=0.2, help="probability of a fresh lineage instead of extending a corpus entry")
+    fz.add_argument("--seed", type=int)
+    fz.add_argument("--shrink-budget", type=int, default=150, help="harness runs Hypothesis may spend shrinking one finding")
+    fz.add_argument("--compact-budget", type=int, default=0, help="runs spent shrinking each new corpus entry while it still reaches its probes (0 = off)")
+    fz.add_argument("--source-shrink-budget", type=int, default=300, help="runs spent on statement-level shrinking of each finding after Hypothesis (0 = off)")
+    fz.add_argument("--findings-dir", help="where findings are recorded (default tests/findings)")
+    fz.add_argument("--ignore-known", action="store_true", help="shrink and record findings whose signature a regression already has")
+    fz.add_argument("--family", action="append")
+    fz.add_argument("--generator", action="append")
+    fz.add_argument("--without", action="append", help="disable a toggle")
+    fz.add_argument("--max-statements", type=int)
+    fz.add_argument("--max-depth", type=int)
+    fz.add_argument("--strict", action="store_true")
+    fz.add_argument("--language-version", type=int, default=200)
+    fz.add_argument("-q", "--quiet", action="store_true")
+    fz.set_defaults(fn=cmd_fuzz)
+
+    sh = sub.add_parser("shrink", help="statement-level shrinking of a reproducer while its coarse verdict holds")
+    sh.add_argument("path")
+    sh.add_argument("-o", "--out", help="output file (default <stem>.min.js next to the input)")
+    sh.add_argument("--budget", type=int, default=300, help="harness runs to spend")
+    sh.add_argument("--strict", action="store_true")
+    sh.add_argument("--language-version", type=int, default=200)
+    sh.add_argument("--wall-ms", type=int, default=5000)
+    sh.set_defaults(fn=cmd_shrink)
+
+    ex = sub.add_parser("export", help="sample every generator and template, run them, write a run directory for the UI")
+    ex.add_argument("-o", "--out", default="ui/data", help="run directories go under here (default ui/data)")
+    ex.add_argument("--per-generator", type=int, default=20)
+    ex.add_argument("--per-template", type=int, default=20)
+    ex.add_argument("--seed", type=int, default=0)
+    ex.add_argument("--worst", type=int, help="print only the N worst rows of the quality table")
+    ex.add_argument("--coverage", action="store_true", help="attach JaCoCo and write coverage.json per focus")
+    ex.add_argument("--family", action="append")
+    ex.add_argument("--generator", action="append")
+    ex.add_argument("--without", action="append", help="disable a toggle")
+    ex.add_argument("--max-statements", type=int)
+    ex.add_argument("--max-depth", type=int)
+    ex.add_argument("--strict", action="store_true")
+    ex.add_argument("--language-version", type=int, default=200)
+    ex.set_defaults(fn=cmd_export)
+
+    me = sub.add_parser("metrics", help="print the quality table of an exported run")
+    me.add_argument("path", help="the run directory (ui/data/<run-id>)")
+    me.add_argument("--worst", type=int)
+    me.set_defaults(fn=cmd_metrics)
+
+    ls = sub.add_parser("list", help="list the registered generators (or templates)")
+    ls.add_argument("--family", action="append")
+    ls.add_argument("--templates", action="store_true")
+    ls.set_defaults(fn=cmd_list)
 
     pr = sub.add_parser("probe", help="probe Rhino's builtins/syntax and refresh the environment model")
     pr.add_argument("--language-version", type=int, default=250)

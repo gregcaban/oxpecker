@@ -136,6 +136,15 @@ final class ModeRunner {
                 if (msg != null && (msg.contains("too much recursion") || msg.contains("stack"))) {
                     return resource(o, "stack");
                 }
+                if (msg != null && (msg.contains("Direct call is not supported") || msg.contains("ontinuation"))) {
+                    // `new Continuation()` in the compiled mode: the constructor only works under the
+                    // interpreter ("Direct call is not supported"), a by-design mode difference like
+                    // the IllegalStateException below, not a script-visible InternalError.
+                    o.status = Outcome.UNSUPPORTED;
+                    o.reason = "continuations";
+                    o.engineException = Outcome.describe(e);
+                    return o;
+                }
                 return thrown(o, host, cx, "evaluator", null, "InternalError", msg);
             } catch (OutOfMemoryError e) {
                 poisoned = true;
