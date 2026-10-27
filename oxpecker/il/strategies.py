@@ -93,6 +93,15 @@ VALUE_MAKERS: dict[Type, GeneratorSpec] = {}
 TEMPLATES: dict[str, "TemplateSpec"] = {}
 
 
+def registered() -> None:
+    """Populate the registries on first use. Generators and templates register themselves when their
+    modules are imported, and only `oxpecker.il.templates` imports them all; a shell that imports
+    this module alone would otherwise find both registries empty. The import is deferred to call
+    time because `templates` imports this module (the cycle is harmless once this module is loaded)."""
+    if not TEMPLATES:
+        import oxpecker.il.templates  # noqa: F401  (registration)
+
+
 @dataclass(frozen=True)
 class TemplateSpec:
     name: str
@@ -190,6 +199,7 @@ _POOL_CACHE: dict[tuple, Pools] = {}
 def pools(options: GenOptions) -> Pools:
     """Fixed, ordered lists: by family order then name, each entry repeated by its weight times
     the option multipliers. Filtering removes entries and never reorders the rest."""
+    registered()
     key = (options.families, options.generators, tuple(sorted(options.weights.items())), tuple(REGISTRY))
     if key in _POOL_CACHE:
         return _POOL_CACHE[key]
@@ -430,8 +440,7 @@ class Generated:
 def programs(draw_, options: GenOptions = GenOptions(), template: str | None = None) -> Generated:
     """A whole program: template (drawn by weight unless `template` names one), builder, verify,
     lifting choices. A verification failure is a generator bug and raises; nothing is filtered."""
-    if not TEMPLATES:
-        raise RuntimeError("no templates registered: import the templates module first")
+    registered()
     if template is not None:
         tname = template
     else:
@@ -513,6 +522,7 @@ class Snippet:
 
 def run_generator(name: str, seed: int = 0, *, prefix_size: int = 3, **options) -> Snippet:
     """Run one registered generator after a small prefix of values, deterministically from a seed."""
+    registered()
     spec = REGISTRY[name]
 
     @st.composite
@@ -536,8 +546,10 @@ def run_generator(name: str, seed: int = 0, *, prefix_size: int = 3, **options) 
 
 def generators(family: str | None = None) -> list[str]:
     """Registered generator names, optionally one family."""
+    registered()
     return sorted(n for n, s in REGISTRY.items() if family is None or s.family == family)
 
 
 def templates() -> list[str]:
+    registered()
     return sorted(TEMPLATES)

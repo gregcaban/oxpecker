@@ -662,6 +662,11 @@ class Lineage:
     rejected: int = 0
 
     @property
+    def depth(self) -> int:
+        """Steps drawn so far, accepted or rejected: what `evolved` counts against its cap."""
+        return len(self.steps) + self.rejected
+
+    @property
     def program(self) -> Program:
         return self.steps[-1].program if self.steps else self.base
 
@@ -693,14 +698,22 @@ class Lineage:
 
 
 @st.composite
-def evolved(draw, options: GenOptions = GenOptions(), steps: int = 4, base=None) -> Lineage:
+def evolved(draw, options: GenOptions = GenOptions(), steps: int = 4, base=None,
+            parent: Lineage | None = None) -> Lineage:
     """A lineage: a `programs()` draw (or `base`) and up to `steps` mutations, each preceded by a
     "one more?" boolean (proposal §3.5): the loop shrinks to fewer steps, and the last choice of
     a complete lineage is the `False` that ended it, which is what extending a corpus entry
-    flips (`fuzz.extend`). A rejected step is skipped and counted, never fatal."""
-    base_program = base.program if isinstance(base, Generated) else base if isinstance(base, Program) else draw(programs(options)).program
-    lineage = Lineage(base_program)
-    k = 0
+    flips (`fuzz.extend`). A rejected step is skipped and counted, never fatal.
+
+    With `parent`, the lineage continues that one: its base and steps are kept (copied), no
+    choice is drawn for them, and the step count and numbering carry on where it stopped, so the
+    choices drawn here are exactly those a full replay draws after the parent's stop flag."""
+    if parent is not None:
+        lineage = Lineage(parent.base, list(parent.steps), parent.rejected)
+    else:
+        base_program = base.program if isinstance(base, Generated) else base if isinstance(base, Program) else draw(programs(options)).program
+        lineage = Lineage(base_program)
+    k = lineage.depth
     while k < steps and draw(st.booleans()):
         k += 1
         which = draw(st.integers(0, len(MUTATORS) - 1))

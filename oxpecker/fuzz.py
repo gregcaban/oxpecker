@@ -15,7 +15,7 @@ fresh), and shrunk by Hypothesis's own shrinker.
 
 From a shell:
 
-    >>> from oxpecker.fuzz import fuzz, Corpus, draw_lineage, extend
+    >>> from oxpecker.fuzz import fuzz, Corpus, draw_lineage, extend, LineageCache
     >>> summary = fuzz(corpus_dir=Path("runs/c1"), iterations=200)
     >>> c = Corpus(Path("runs/c1")); c.entries[0].steps; print(c.replay(0))   # the lineage behind an entry
 """
@@ -26,7 +26,7 @@ import json
 import random
 import sys
 import time
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
@@ -80,12 +80,29 @@ def replay(choices: Choices, options: GenOptions = GenOptions(), steps: int = 5)
         return None
 
 
-def extend(choices: Choices, options: GenOptions, steps: int, rng: Random) -> tuple[Lineage, Choices] | None:
+def extend(choices: Choices, options: GenOptions, steps: int, rng: Random,
+           parent: Lineage | None = None) -> tuple[Lineage, Choices] | None:
     """A parent lineage with more mutation steps: its final "one more?" `False` becomes `True` and
-    the new steps are drawn fresh (proposal §3.5). None when the parent is at the step cap."""
-    if not choices or choices[-1] is not False:
+    the new steps are drawn fresh (proposal §3.5). None when the parent is at the step cap.
+
+    Only the new steps are drawn (`evolved(parent=...)`): `parent` is the lineage `choices`
+    draws, replayed here when not given (the loop keeps it in a `LineageCache`). The choices
+    returned are the parent's with the flag flipped and the new draws appended, which is the
+    sequence a full replay consumes, so `replay` and the shrinker see no difference."""
+    if parent is None:
+        parent = replay(choices, options, steps)
+        if parent is None:
+            return None
+    if parent.depth >= steps or not choices or choices[-1] is not False:
         return None
-    return draw_lineage(options, steps, prefix=tuple(choices[:-1]) + (True,), rng=rng)
+    data = seeded_data(rng=rng, prefix=(True,))
+    try:
+        with BuildContext(data, wrapped_test=lambda: None):
+            child = data.draw(evolved(options, steps, parent=parent))
+    except (StopTest, UnsatisfiedAssumption):
+        return None
+    data.freeze()
+    return child, tuple(choices[:-1]) + tuple(data.choices)
 
 
 def encode(choices: Choices) -> str:
@@ -140,6 +157,39 @@ class Corpus:
     def replay(self, index: int, options: GenOptions = GenOptions(), steps: int = 5) -> Lineage | None:
         choices = decode(self.entries[index].choices)
         return replay(choices, options, steps) if choices is not None else None
+
+
+class LineageCache:
+    """The lineages behind corpus entries, by entry id, so extending an entry draws only its new
+    steps instead of replaying the whole lineage (follow-up item 1). Entries the loop adds are
+    put here as they are found; entries loaded from disk are replayed on first use. Least
+    recently used entries are dropped past `capacity`."""
+
+    def __init__(self, capacity: int = 512):
+        self.capacity = capacity
+        self._lineages: OrderedDict[int, Lineage] = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+
+    def put(self, entry_id: int, lineage: Lineage) -> None:
+        self._lineages[entry_id] = lineage
+        self._lineages.move_to_end(entry_id)
+        while len(self._lineages) > self.capacity:
+            self._lineages.popitem(last=False)
+
+    def get(self, entry: Entry, options: GenOptions, steps: int) -> Lineage | None:
+        """The entry's lineage, replayed from its choices on a miss (None if it no longer decodes)."""
+        cached = self._lineages.get(entry.id)
+        if cached is not None:
+            self.hits += 1
+            self._lineages.move_to_end(entry.id)
+            return cached
+        self.misses += 1
+        choices = decode(entry.choices)
+        lineage = replay(choices, options, steps) if choices is not None else None
+        if lineage is not None:
+            self.put(entry.id, lineage)
+        return lineage
 
 
 # ------------------------------------------------------------------------------- running one lineage
@@ -291,6 +341,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         return finding_class(v.signature()) if v.kind == HARD and v.signature() not in known else None
 
     shrinker = Shrinker(runner, options, steps, is_new_hard, budget=shrink_budget)
+    lineages = LineageCache()
     i = 0
     try:
         while True:
@@ -304,7 +355,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if corpus.entries and rng.random() > p_new:
                 parent = rng.choice(corpus.entries)
                 parent_choices = decode(parent.choices)
-                drawn = extend(parent_choices, options, steps, rng) if parent_choices else None
+                parent_lineage = lineages.get(parent, options, steps) if parent_choices else None
+                drawn = extend(parent_choices, options, steps, rng, parent_lineage) if parent_lineage else None
                 stats["extended" if drawn else "extend-failed"] += 1
             if drawn is None:
                 parent = None
@@ -352,8 +404,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                         entry = compacted
                         stats["compacted"] += 1
                 e_choices, e_lineage, probes = entry
-                corpus.add(Entry(corpus.next_id(), encode(e_choices), e_lineage.template, [s.name for s in e_lineage.steps],
-                                 obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code)))
+                new_entry = Entry(corpus.next_id(), encode(e_choices), e_lineage.template, [s.name for s in e_lineage.steps],
+                                  obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code))
+                corpus.add(new_entry)
+                lineages.put(new_entry.id, e_lineage)
                 stats["corpus-added"] += 1
                 stats["new-probes"] += obs.new_probes
             if client is not None and i % save_every == 0:
@@ -375,6 +429,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 report = {}
         if own_client is not None:
             own_client.stop()
+    stats["lineage-cache-hits"] = lineages.hits
+    stats["lineage-cache-misses"] = lineages.misses
     summary = {"runs": i, "seconds": time.time() - t0, "corpus": len(corpus.entries), "stats": dict(stats),
                "signatures": dict(sig_counts), "coveredProbes": report.get("coveredProbes"),
                "totalProbes": report.get("totalProbes"), "steps": steps, "p_new": p_new}

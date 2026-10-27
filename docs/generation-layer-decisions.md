@@ -321,3 +321,16 @@ refinement G32 left open): AnyType to Rhino's optimizer, so not a number variabl
 emits `ScriptRuntime.add(Object, double)` and the value is a Double at a boundary where the
 activation copy keeps an Integer. `test_rhino_model.py` now checks the model's prediction
 against the probes for every shape instead of carrying the observation in the test.
+
+**G48. Extending a corpus entry continues the cached parent lineage; only the new steps are
+drawn.** `evolved(parent=lineage)` copies the parent's base and steps, draws nothing for them,
+and carries its step count (accepted plus rejected) so numbering and the cap continue where the
+parent stopped. `fuzz.extend` draws from a fresh `ConjectureData` whose prefix is the single
+`True` that replaces the parent's stop flag, and stores the parent's choices (minus the flag)
+plus everything drawn, which is exactly the sequence a full replay consumes: `replay` and the
+shrinker are unchanged and `test_fuzz.py` asserts the replayed program, steps and rejected
+count match. The loop keeps lineages in `LineageCache` (LRU, 512 entries) as it adds entries
+and replays an entry loaded from disk on its first use. Measured on parents with two steps,
+default options: 92 ms per extension against 237 ms through replay (fresh lineage 58 ms). The
+check against the cap uses the lineage's depth, not the last choice being `False`, which a
+mutation's own last draw could also be. Follow-up item 1.

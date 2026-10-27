@@ -266,7 +266,10 @@ the meta file.
 Outside the package because it needs the harness. A corpus entry is a lineage as the choice
 sequence that draws it (G35): `draw_lineage(options, steps, prefix=, rng=)` draws one (the
 prefix replays exactly, the rest is fresh), `replay(choices)` reproduces it, `extend(choices,
-...)` flips the lineage's final "one more?" choice and draws more steps. `fuzz(corpus_dir=,
+..., parent)` flips the lineage's final "one more?" choice and draws more steps, continuing the
+parent `Lineage` object instead of replaying it (`evolved(parent=)`, G48; the stored sequence
+is the same either way). `LineageCache` keeps the lineages behind corpus entries for that, by
+entry id, replaying an entry loaded from disk on first use. `fuzz(corpus_dir=,
 ...)` is the loop: a fresh lineage with `p_new`, otherwise a corpus entry extended; the program
 runs in both Rhino modes through `harness_runner` (any `Runner` will do: the tests use a fake
 one with planted probes and a planted bug); new probes add the entry to `corpus.jsonl` (with

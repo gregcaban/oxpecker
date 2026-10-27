@@ -10,8 +10,8 @@ from random import Random
 
 import pytest
 
-from oxpecker.fuzz import (Corpus, Observation, Shrinker, compact, decode, draw_lineage, encode, extend, fuzz,
-                           replay)
+from oxpecker.fuzz import (Corpus, Entry, LineageCache, Observation, Shrinker, compact, decode, draw_lineage,
+                           encode, extend, fuzz, replay)
 from oxpecker.harness.compare import EQUAL, HARD, Verdict
 from oxpecker.il import ops
 from oxpecker.il.mutate import Lineage
@@ -68,7 +68,53 @@ def test_draw_replay_and_extend_round_trip():
     child, child_choices = longer
     assert signature(child.base.code) == signature(lineage.base.code)
     assert child_choices[: len(choices) - 1] == choices[:-1]
-    assert len(child.steps) + child.rejected >= len(lineage.steps) + lineage.rejected
+    assert child.depth > lineage.depth
+    assert [s.name for s in child.steps[: len(lineage.steps)]] == [s.name for s in lineage.steps]
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_extension_draws_only_the_new_steps_and_replays_identically(seed: int):
+    """Follow-up item 1: `extend` continues the cached parent lineage instead of replaying it,
+    and the choices it stores are exactly what a full replay consumes, so replaying the stored
+    sequence gives the same program with the same steps."""
+    drawn = draw_lineage(OPTIONS, STEPS, seed=seed)
+    assert drawn is not None
+    parent, parent_choices = drawn
+    if parent.depth >= STEPS:
+        assert extend(parent_choices, OPTIONS, STEPS, Random(seed), parent) is None     # at the cap
+        return
+    longer = extend(parent_choices, OPTIONS, STEPS, Random(seed), parent)
+    assert longer is not None
+    child, child_choices = longer
+    assert child.depth > parent.depth
+    assert child_choices[len(parent_choices) - 1] is True
+    again = replay(child_choices, OPTIONS, STEPS)
+    assert again is not None
+    assert signature(again.code) == signature(child.code)
+    assert [s.name for s in again.steps] == [s.name for s in child.steps]
+    assert again.rejected == child.rejected
+    # without the parent in hand, extend replays it and draws the same new steps from the same rng
+    same = extend(parent_choices, OPTIONS, STEPS, Random(seed))
+    assert same is not None and same[1] == child_choices
+    # the parent lineage itself is untouched
+    assert len(parent.steps) + parent.rejected == parent.depth and parent_choices[-1] is False
+
+
+def test_lineage_cache_serves_added_entries_and_replays_loaded_ones():
+    cache = LineageCache(capacity=2)
+    lineages = []
+    for seed in range(3):
+        lineage, choices = draw_lineage(OPTIONS, STEPS, seed=seed)
+        entry = Entry(seed, encode(choices), lineage.template, [s.name for s in lineage.steps], 0)
+        lineages.append((entry, lineage))
+    cache.put(0, lineages[0][1])
+    assert cache.get(lineages[0][0], OPTIONS, STEPS) is lineages[0][1] and cache.hits == 1
+    loaded = cache.get(lineages[1][0], OPTIONS, STEPS)              # a miss: replayed from the choices
+    assert cache.misses == 1 and loaded is not None
+    assert signature(loaded.code) == signature(lineages[1][1].code)
+    assert cache.get(lineages[1][0], OPTIONS, STEPS) is loaded      # now cached
+    cache.get(lineages[2][0], OPTIONS, STEPS)                        # evicts the least recently used (0)
+    assert cache.get(lineages[0][0], OPTIONS, STEPS) is not lineages[0][1] and cache.misses == 3
 
 
 def test_loop_grows_the_corpus_and_finds_and_shrinks_the_planted_bug(tmp_path: Path):
@@ -82,6 +128,8 @@ def test_loop_grows_the_corpus_and_finds_and_shrinks_the_planted_bug(tmp_path: P
     assert corpus.entries, "nothing reached new probes"
     assert summary["stats"]["corpus-added"] == len(corpus.entries)
     assert summary["stats"].get("extended", 0) > 0
+    assert summary["stats"]["lineage-cache-misses"] == 0        # every entry was put on add
+    assert summary["stats"]["lineage-cache-hits"] >= summary["stats"]["extended"]
     first = corpus.replay(0, OPTIONS, STEPS)
     assert first is not None and first.template == corpus.entries[0].template
     assert (corpus_dir / "last-run.json").exists()

@@ -6,7 +6,7 @@ was observed, what the design should be, and why. Decisions already taken are in
 `docs/generation-layer-decisions.md`; the implementation is described in
 `docs/implementation-generation-layer.md`.
 
-## 1. Extension re-draws the whole lineage: cache the parent
+## 1. Extension re-draws the whole lineage: cache the parent — done 2026-10-27 (G48)
 
 **Observation.** A corpus entry is the Hypothesis choice sequence of a lineage (G35). Extending
 it (`fuzz.extend`) replays that sequence as a prefix and draws the new steps after it. Replaying
@@ -50,6 +50,21 @@ more?" loop counts rejected steps against the cap.
 **Test.** For each of fifty corpus entries: extend through the cache, then replay the stored
 sequence from scratch and assert the two programs have the same `signature`.
 
+**Done.** `evolved(parent=)`, `fuzz.extend(..., parent)`, `fuzz.LineageCache`; the test is
+`test_extension_draws_only_the_new_steps_and_replays_identically` (twelve seeds, also checking
+the steps and the rejected count, and that extending without the parent in hand draws the same
+choices). The prefix is the single `True` rather than the whole parent sequence, so `evolved`
+draws its "one more?" flag as before and needs no special first iteration. Measured afterwards
+(parents with two steps, default options, thirty seeds): extension 92 ms median through the
+cache, 237 ms through replay, a fresh lineage 58 ms. The remaining cost is the new steps
+themselves (each one analyses, verifies and lifts the whole program) and the occasional
+rejected step. Cache hits and misses are in the run summary (`lineage-cache-hits`,
+`lineage-cache-misses`); a campaign started from an existing corpus misses once per entry.
+A three-minute campaign afterwards (seed 5, no compaction): 997 runs at 5.5 runs/s, corpus
+330, 17 610 probes, 792 cache hits and no misses, 125 extension attempts refused at the cap
+(item 2); the ten-minute campaign before the change ran at 3.6 runs/s. Its hard signatures
+were the continuation pair and the recorded top-level multiply-by-zero regression.
+
 ## 2. The step cap makes corpus entries dead ends: rebase
 
 **Observation.** `steps` (default 5) caps a lineage's total depth, not the number of steps per
@@ -62,8 +77,9 @@ mutations from a generated base, and the deepest entries, which are the most evo
 ones that stop evolving.
 
 Raising `steps` is cheap in buffer terms (entries used at most 2 317 of the 8 192 serialised
-bytes Hypothesis allows per test case, median ~550; a step adds 250–400) but with item 1 undone
-it multiplies the replay cost, and Hypothesis's shrinker gets slower with the sequence length.
+bytes Hypothesis allows per test case, median ~550; a step adds 250–400) but it still grows the choice
+sequence, and Hypothesis's shrinker gets slower with the sequence length (item 1 took the
+replay cost out of extension, not out of shrinking).
 
 **Design: rebasing** (proposal §5.3's escape hatch). When a parent is at the cap, make its
 final program the new base of a fresh lineage: `evolved(options, steps, base=parent.program)`
@@ -76,8 +92,8 @@ G40), which does not care where the program came from. Bound the chain length (a
 rebase ...) at, say, four, and count rebases in the summary.
 
 The alternative, a per-round cap (Fuzzilli's `consecutiveMutations`) with an unbounded lineage,
-keeps everything shrinkable but needs item 1 first and still grows the choice sequence without
-bound; the corpus would need compaction (G45 says compaction is too expensive to run on insert)
+keeps everything shrinkable (item 1 makes it affordable) but still grows the choice sequence
+without bound; the corpus would need compaction (G45 says compaction is too expensive to run on insert)
 or a rebase once the sequence nears the buffer anyway.
 
 ## 3. `combine` dominates what reaches new coverage
