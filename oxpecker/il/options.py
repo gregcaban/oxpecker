@@ -26,6 +26,10 @@ class GenOptions:
     weights: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))   # name or family -> multiplier
 
     def __post_init__(self) -> None:
+        for name in ("toggles", "families", "generators"):      # any iterable from a shell or the CLI
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, frozenset):
+                object.__setattr__(self, name, frozenset(value))
         if self.min_statements < 0 or self.max_statements < self.min_statements:
             raise ValueError("statement bounds")
         if self.max_depth < 0:

@@ -30,6 +30,8 @@ operators and keywords are enums. A lint test enforces that (§6).
 
 ## 2. From a shell
 
+The step-by-step version, with every block executed by a test, is `docs/repl-tutorial.md`.
+
 ```python
 >>> from oxpecker.il.strategies import generate, run_generator, draw, generators, templates
 >>> g = generate(seed=3)                 # a whole program; same seed, same program
