@@ -334,3 +334,32 @@ and replays an entry loaded from disk on its first use. Measured on parents with
 default options: 92 ms per extension against 237 ms through replay (fresh lineage 58 ms). The
 check against the cap uses the lineage's depth, not the last choice being `False`, which a
 mutation's own last draw could also be. Follow-up item 1.
+
+**G49. The step cap is per extension round; a safety cap bounds the whole lineage.** `steps`
+(default 5) used to cap a lineage's total depth, so an entry that reached it could never be
+extended (no stop flag to flip): 221 of 1 716 extension attempts in the ten-minute campaign,
+and always the most evolved entries. Now each round, a fresh lineage or one extension, may add
+up to `steps` mutations: `extend` sets the child's cap to the parent's depth plus `steps`,
+`Lineage.cap` and `Entry.cap` record it, and `replay` uses the recorded cap, because the "one
+more?" draws depend on it. A parent that ended by its cap drew no stop flag, so its whole
+sequence is kept and the flag inserted; one that stopped early has its `False` replaced as
+before. `max_depth` (`--max-lineage-depth`, default 20) is the only dead end left, chosen from
+the buffer data: a step adds 250–400 serialised bytes against Hypothesis's 8 192. Rebasing at
+that depth (follow-up item 2's other half) is deferred until a campaign shows entries reaching
+it. Corpora recorded before this have no `cap`; the loop's `steps` stands in.
+
+**G50. `combine` and `codegen` are drawn less.** Mutators were drawn uniformly; `combine`
+produced 212 of 798 productive steps at a one-in-nine share and `codegen` 154, and `combine`
+drags the corpus towards large programs (333 instructions at the top, median 89). `MUTATOR_WEIGHTS`
+gives `combine` weight 1 and `codegen` 2 against 3 for the rest, drawn as one index into a
+fixed weight-expanded list like the generator pools (G6), for lineages and for `mutate()`
+alike. The number to watch after any change here is new probes per run and the corpus's
+instruction counts, both in the campaign summary.
+
+**G51. Mutation statistics are aggregated per mutator.** A lineage counts the steps it tried
+and rejected per mutator (`attempted_by`, `rejected_by`, carried across rounds); the loop sums
+each round's share and the steps of the entries it adds, so `last-run.json` has
+`stats["steps-attempted"]`, `stats["steps-rejected"]` and `mutators[name] = {attempted,
+rejected, corpus}`. The 35 % rejection bound of design §10 item 8 is now observable in
+campaigns, and the productive share per mutator is what G50 is tuned against.
+

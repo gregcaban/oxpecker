@@ -6,8 +6,9 @@ fresh), and shrunk by Hypothesis's own shrinker.
 
     corpus   lineages that reached Rhino probes nothing before them had: `corpus.jsonl` plus the
              JaCoCo store `coverage.exec`, so a later run resumes the frontier
-    loop     with p_new a fresh lineage, else a corpus entry extended by up to `steps` mutation
-             steps in all; the child's program runs in both Rhino modes and is compared
+    loop     with p_new a fresh lineage, else a corpus entry extended by up to `steps` more
+             mutation steps (per round, G49; `max_depth` bounds the whole lineage); the child's
+             program runs in both Rhino modes and is compared
              new probes -> (optionally shrunk while it still reaches them) -> corpus
              a hard verdict with an unknown signature -> shrunk by Hypothesis -> recorded
     shrink   Hypothesis's shrinker (phases reuse + shrink from an in-memory example database
@@ -47,6 +48,8 @@ from .il.strategies import seeded_data
 
 ProbeSet = dict[str, list[int]]
 Choices = tuple[Any, ...]
+MAX_DEPTH = 20            # safety cap on a lineage's depth across extension rounds (G49): the choice
+                          # sequence grows by a few hundred bytes per step against Hypothesis's 8 KiB
 DATABASE_KEY = b"oxpecker.fuzz.lineage"      # the lineage test's database key for the shrink runs
 SECONDARY_KEY = DATABASE_KEY + b".secondary"   # where the failing choices go: an example under the
                                                 # primary key counts as already shrunk (engine.py, the
@@ -71,7 +74,8 @@ def draw_lineage(options: GenOptions, steps: int, *, prefix: Choices | None = No
 
 def replay(choices: Choices, options: GenOptions = GenOptions(), steps: int = 5) -> Lineage | None:
     """The lineage a choice sequence draws, or None if it no longer decodes (the strategies
-    changed since it was recorded)."""
+    changed since it was recorded). `steps` must be the cap the sequence was drawn with (a corpus
+    entry records it as `cap`): the "one more?" draws depend on it."""
     try:
         data = ConjectureData.for_choices(choices)
         with BuildContext(data, wrapped_test=lambda: None):
@@ -81,28 +85,39 @@ def replay(choices: Choices, options: GenOptions = GenOptions(), steps: int = 5)
 
 
 def extend(choices: Choices, options: GenOptions, steps: int, rng: Random,
-           parent: Lineage | None = None) -> tuple[Lineage, Choices] | None:
-    """A parent lineage with more mutation steps: its final "one more?" `False` becomes `True` and
-    the new steps are drawn fresh (proposal §3.5). None when the parent is at the step cap.
+           parent: Lineage | None = None, *, cap: int | None = None,
+           max_depth: int = MAX_DEPTH) -> tuple[Lineage, Choices] | None:
+    """A parent lineage with up to `steps` more mutation steps, drawn fresh (proposal §3.5).
+    `steps` is per round (G49): the child's cap is the parent's depth plus `steps`, bounded by
+    `max_depth`, and `Lineage.cap` records it so the entry can be replayed and extended again.
+    None when the parent is at `max_depth` or its choices no longer decode.
 
     Only the new steps are drawn (`evolved(parent=...)`): `parent` is the lineage `choices`
-    draws, replayed here when not given (the loop keeps it in a `LineageCache`). The choices
-    returned are the parent's with the flag flipped and the new draws appended, which is the
-    sequence a full replay consumes, so `replay` and the shrinker see no difference."""
+    draws, replayed here (with `cap`, its own cap) when not given; the loop keeps it in a
+    `LineageCache`. The choices returned are the parent's, its stop flag (if it drew one)
+    replaced by `True`, plus the new draws: the sequence a full replay with the child's cap
+    consumes, so `replay` and the shrinker see no difference."""
     if parent is None:
-        parent = replay(choices, options, steps)
+        parent = replay(choices, options, cap if cap is not None else steps)
         if parent is None:
             return None
-    if parent.depth >= steps or not choices or choices[-1] is not False:
+    if parent.depth >= max_depth or not choices:
         return None
+    if parent.at_cap:
+        kept = tuple(choices)                   # ended by its cap: no stop flag was drawn
+    else:
+        if choices[-1] is not False:
+            return None
+        kept = tuple(choices[:-1])
+    new_cap = min(parent.depth + steps, max_depth)
     data = seeded_data(rng=rng, prefix=(True,))
     try:
         with BuildContext(data, wrapped_test=lambda: None):
-            child = data.draw(evolved(options, steps, parent=parent))
+            child = data.draw(evolved(options, new_cap, parent=parent))
     except (StopTest, UnsatisfiedAssumption):
         return None
     data.freeze()
-    return child, tuple(choices[:-1]) + tuple(data.choices)
+    return child, kept + tuple(data.choices)
 
 
 def encode(choices: Choices) -> str:
@@ -126,6 +141,7 @@ class Entry:
     instructions: int = 0
     found: list[str] = field(default_factory=list)
     added_at: float = field(default_factory=time.time)
+    cap: int | None = None            # the lineage's step cap (G49); None in corpora from before it
 
     def to_json(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -155,8 +171,10 @@ class Corpus:
         return max((e.id for e in self.entries), default=-1) + 1
 
     def replay(self, index: int, options: GenOptions = GenOptions(), steps: int = 5) -> Lineage | None:
-        choices = decode(self.entries[index].choices)
-        return replay(choices, options, steps) if choices is not None else None
+        """The entry's lineage; `steps` stands in for the cap of an entry recorded without one."""
+        e = self.entries[index]
+        choices = decode(e.choices)
+        return replay(choices, options, e.cap if e.cap is not None else steps) if choices is not None else None
 
 
 class LineageCache:
@@ -186,7 +204,8 @@ class LineageCache:
             return cached
         self.misses += 1
         choices = decode(entry.choices)
-        lineage = replay(choices, options, steps) if choices is not None else None
+        cap = entry.cap if entry.cap is not None else steps
+        lineage = replay(choices, options, cap) if choices is not None else None
         if lineage is not None:
             self.put(entry.id, lineage)
         return lineage
@@ -276,7 +295,8 @@ class Shrinker:
     calls: int = 0
     best: tuple[Lineage, Choices, Observation] | None = None
 
-    def shrink(self, choices: Choices) -> tuple[Lineage, Choices, Observation] | None:
+    def shrink(self, choices: Choices, cap: int | None = None) -> tuple[Lineage, Choices, Observation] | None:
+        """`cap` is the lineage's own cap (G49); `self.steps` stands in when not given."""
         db = InMemoryExampleDatabase()
         db.save(SECONDARY_KEY, choices_to_bytes(choices))
         self.calls = 0
@@ -284,7 +304,7 @@ class Shrinker:
 
         @settings(database=db, deadline=None, suppress_health_check=list(HealthCheck), max_examples=1000,
                   phases=(Phase.reuse, Phase.shrink), derandomize=False, print_blob=False, report_multiple_bugs=False)
-        @given(evolved(self.options, self.steps))
+        @given(evolved(self.options, cap if cap is not None else self.steps))
         def test(l: Lineage) -> None:
             if self.calls >= self.budget:
                 return
@@ -311,9 +331,12 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          seconds: float | None = None, steps: int = 5, p_new: float = 0.2, seed: int | None = None,
          known: set[str] | None = None, findings_dir: Path = findings.DEFAULT_DIR, shrink_budget: int = 150,
          compact_budget: int = 0, source_shrink_budget: int = 300, language_version: int = 200,
-         runner: Runner | None = None, client=None, save_every: int = 100, quiet: bool = False) -> dict[str, Any]:
+         runner: Runner | None = None, client=None, save_every: int = 100, quiet: bool = False,
+         max_depth: int = MAX_DEPTH) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
-    coverage-enabled client is started. Returns the summary also written to `last-run.json`."""
+    coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
+    or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
+    Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
     stats: Counter[str] = Counter()
@@ -342,6 +365,9 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
 
     shrinker = Shrinker(runner, options, steps, is_new_hard, budget=shrink_budget)
     lineages = LineageCache()
+    attempted: Counter[str] = Counter()      # mutation steps tried this run, per mutator (G51)
+    rejected: Counter[str] = Counter()       # of those, the ones whose child did not verify
+    productive: Counter[str] = Counter()     # steps of the entries added to the corpus this run
     i = 0
     try:
         while True:
@@ -351,13 +377,18 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 break
             i += 1
             parent: Entry | None = None
+            parent_lineage: Lineage | None = None
             drawn = None
             if corpus.entries and rng.random() > p_new:
                 parent = rng.choice(corpus.entries)
                 parent_choices = decode(parent.choices)
                 parent_lineage = lineages.get(parent, options, steps) if parent_choices else None
-                drawn = extend(parent_choices, options, steps, rng, parent_lineage) if parent_lineage else None
-                stats["extended" if drawn else "extend-failed"] += 1
+                if parent_lineage is not None and parent_lineage.depth >= max_depth:
+                    stats["at-max-depth"] += 1
+                    drawn = None
+                else:
+                    drawn = extend(parent_choices, options, steps, rng, parent_lineage, max_depth=max_depth) if parent_lineage else None
+                    stats["extended" if drawn else "extend-failed"] += 1
             if drawn is None:
                 parent = None
                 drawn = draw_lineage(options, steps, rng=rng)
@@ -366,6 +397,11 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 stats["rejected"] += 1
                 continue
             lineage, choices = drawn
+            base_lineage = parent_lineage if parent is not None else None
+            for name, n in lineage.attempted_by.items():
+                attempted[name] += n - (base_lineage.attempted_by.get(name, 0) if base_lineage else 0)
+            for name, n in lineage.rejected_by.items():
+                rejected[name] += n - (base_lineage.rejected_by.get(name, 0) if base_lineage else 0)
             obs = runner(lineage)
             v = obs.verdict
             stats[v.kind] += 1
@@ -379,7 +415,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 else:
                     known.add(sig)
                     stats["new-findings"] += 1
-                    small = shrinker.shrink(choices) or (lineage, choices, obs)
+                    small = shrinker.shrink(choices, lineage.cap) or (lineage, choices, obs)
                     record_as, rec_run, rec_verdict = small[0], small[2].run, small[2].verdict
                     if client is not None and source_shrink_budget:
                         # then statement-level deletion on the lifted source, which gets much further
@@ -399,15 +435,18 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if obs.new_probes > 0:
                 entry = (choices, lineage, obs.new_probe_ids)
                 if compact_budget and obs.new_probe_ids:
-                    compacted = compact(runner, options, steps, choices, obs.new_probe_ids, compact_budget)
+                    compacted = compact(runner, options, lineage.cap, choices, obs.new_probe_ids, compact_budget)
                     if compacted is not None:
                         entry = compacted
                         stats["compacted"] += 1
                 e_choices, e_lineage, probes = entry
                 new_entry = Entry(corpus.next_id(), encode(e_choices), e_lineage.template, [s.name for s in e_lineage.steps],
-                                  obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code))
+                                  obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code),
+                                  cap=e_lineage.cap)
                 corpus.add(new_entry)
                 lineages.put(new_entry.id, e_lineage)
+                for step in e_lineage.steps[len(base_lineage.steps) if base_lineage else 0:]:
+                    productive[step.name] += 1
                 stats["corpus-added"] += 1
                 stats["new-probes"] += obs.new_probes
             if client is not None and i % save_every == 0:
@@ -431,9 +470,15 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             own_client.stop()
     stats["lineage-cache-hits"] = lineages.hits
     stats["lineage-cache-misses"] = lineages.misses
+    stats["steps-attempted"] = sum(attempted.values())
+    stats["steps-rejected"] = sum(rejected.values())
+    mutator_stats = {name: {"attempted": attempted[name], "rejected": rejected[name], "corpus": productive[name]}
+                     for name in sorted(set(attempted) | set(productive))}
     summary = {"runs": i, "seconds": time.time() - t0, "corpus": len(corpus.entries), "stats": dict(stats),
                "signatures": dict(sig_counts), "coveredProbes": report.get("coveredProbes"),
-               "totalProbes": report.get("totalProbes"), "steps": steps, "p_new": p_new}
+               "totalProbes": report.get("totalProbes"), "steps": steps, "max_depth": max_depth, "p_new": p_new,
+               "max_entry_depth": max((len(e.steps) for e in corpus.entries), default=0),
+               "mutators": mutator_stats}
     (corpus.dir / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     return summary
 
@@ -471,7 +516,8 @@ def compact(runner: Runner, options: GenOptions, steps: int, choices: Choices, n
             budget: int) -> tuple[Choices, Lineage, ProbeSet] | None:
     """Shrink on insert (proposal §5.3): re-run the entry asking for its new probes and keep the
     subset it reaches again (once-per-JVM probes drop out, D36), then let Hypothesis shrink the
-    lineage while it still reaches that subset. Returns (choices, lineage, probes) or None."""
+    lineage while it still reaches that subset. `steps` is the lineage's cap (G49).
+    Returns (choices, lineage, probes) or None."""
     lineage = replay(choices, options, steps)
     if lineage is None:
         return None

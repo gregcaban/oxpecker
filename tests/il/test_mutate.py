@@ -9,7 +9,7 @@ import statistics
 from collections import Counter
 
 import pytest
-from hypothesis import HealthCheck, find, given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 import oxpecker.il.templates  # noqa: F401
@@ -17,7 +17,7 @@ from oxpecker.il import ops
 from oxpecker.il.analysis import analyse, verify
 from oxpecker.il.lift import LiftOptions, lift
 from oxpecker.il.mutate import (MUTATORS, Lineage, Rejected, evolved, insertion_points, lineage, mutate, mutation,
-                                mutators, try_mutation)
+                                mutator_weights, mutators, try_mutation)
 from oxpecker.il.options import GenOptions
 from oxpecker.il.program import signature
 from oxpecker.il.strategies import draw, generate, programs
@@ -179,12 +179,49 @@ def test_lineage_shell_api_is_deterministic():
 
 
 def test_lineages_shrink_to_the_needed_step():
-    """A property that needs one particular mutator shrinks to a lineage with that single step."""
-    minimal = find(evolved(GenOptions(max_statements=3, max_depth=1), steps=3),
-                   lambda l: any(s.name == "reassign" for s in l.steps),
-                   settings=settings(max_examples=200, deadline=None, database=None, derandomize=True,
-                                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large]))
-    assert [s.name for s in minimal.steps] == ["reassign"]
+    """A property that needs one particular mutator shrinks to a lineage with that single step.
+    The search runs through the seeded provider (`find` would use Hypothesis's stock one, whose
+    draws depend on which modules are loaded, G43) and the shrink from a saved example, the way
+    `fuzz.Shrinker` does it."""
+    from hypothesis import Phase
+    from hypothesis.control import BuildContext
+    from hypothesis.database import InMemoryExampleDatabase, choices_to_bytes
+
+    from oxpecker.il.strategies import seeded_data
+
+    strategy = evolved(GenOptions(max_statements=3, max_depth=1), steps=3)
+    needed = lambda l: any(s.name == "reassign" for s in l.steps)   # noqa: E731
+    for seed in range(300):
+        data = seeded_data(seed)
+        with BuildContext(data, wrapped_test=lambda: None):
+            found = data.draw(strategy)
+        if needed(found):
+            data.freeze()
+            break
+    else:
+        pytest.fail("no lineage with a reassign step in 300 seeds")
+    key = b"oxpecker.test.shrink_to_the_needed_step"
+    db = InMemoryExampleDatabase()
+    db.save(key + b".secondary", choices_to_bytes(tuple(data.choices)))   # the primary key counts as already shrunk
+    seen: list[Lineage] = []
+
+    class Needed(Exception):
+        pass
+
+    @settings(database=db, phases=(Phase.reuse, Phase.shrink), max_examples=400, deadline=None, derandomize=False,
+              suppress_health_check=list(HealthCheck), print_blob=False, report_multiple_bugs=False)
+    @given(strategy)
+    def shrink(l: Lineage) -> None:
+        if needed(l):
+            seen.append(l)
+            raise Needed
+
+    shrink._hypothesis_internal_database_key = key
+    with pytest.raises(Needed):
+        shrink()
+    minimal = seen[-1]                      # Hypothesis re-runs the minimal failing example last
+    assert [s.name for s in minimal.steps] == ["reassign"], [s.name for s in minimal.steps]
+    assert len(minimal.steps) <= len(found.steps)
 
 
 @settings(max_examples=10, deadline=None, suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
@@ -194,3 +231,22 @@ def test_mutation_strategy_rejects_instead_of_raising(data):
     parent = data.draw(programs(GenOptions(**SMALL)))
     child = data.draw(mutation(parent.program))
     verify(child.code)
+
+
+def test_mutator_weights_lower_combine_and_codegen_and_lineages_count_per_mutator():
+    """G50: `combine` and `codegen` are drawn less than the rest; G51: a lineage counts the steps
+    it tried and rejected per mutator, consistently with its depth."""
+    w = mutator_weights()
+    assert set(w) == set(mutators()) and w["combine"] < w["codegen"] < w["operation"]
+    attempted = {name: 0 for name in mutators()}
+    for seed in range(120):
+        l = lineage(seed, steps=3, max_statements=3, max_depth=1)
+        assert sum(l.attempted_by.values()) == l.depth == len(l.steps) + l.rejected
+        assert sum(l.rejected_by.values()) == l.rejected
+        assert all(l.rejected_by[n] <= l.attempted_by.get(n, 0) for n in l.rejected_by)
+        for name, n in l.attempted_by.items():
+            attempted[name] += n
+    total = sum(attempted.values())
+    assert total >= 60, total
+    share = w["combine"] / sum(w.values())
+    assert attempted["combine"] / total < 2.5 * share + 0.02, attempted     # about 4 % expected, 11 % uniform

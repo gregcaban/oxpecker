@@ -102,8 +102,13 @@ where it lives, `docs/repl-tutorial.md` shows it from a shell.
 - **"One more?" / stop flag**: in `evolved`, each mutation step is preceded by a boolean draw;
   `False` ends the lineage and is its last choice. The draw is skipped once the depth reaches
   the cap, so a lineage at the cap has no stop flag.
-- **Step cap** (`steps`, default 5): the maximum depth of a lineage, counted from its base
-  across all extensions, not per extension.
+- **Step cap** (`steps`, default 5): the most mutation steps one round may add, a fresh
+  lineage or one extension (G49). Each lineage records its own cap (`Lineage.cap`,
+  `Entry.cap`): the parent's depth plus `steps` at the last extension. **Max depth**
+  (`max_depth`, `--max-lineage-depth`, default 20): the safety cap on a lineage's depth over
+  all rounds, the only thing that makes an entry a dead end.
+- **Mutator weight** (`mutate.MUTATOR_WEIGHTS`, G50): how often a mutator is drawn for a step;
+  `combine` 1, `codegen` 2, the rest 3.
 
 ## The loop
 
@@ -119,8 +124,8 @@ where it lives, `docs/repl-tutorial.md` shows it from a shell.
   stored as the parent's choices plus the new ones. Since G48 the parent lineage object is
   continued (`evolved(parent=)`) rather than replayed. An extension is made of mutations; the
   word names the corpus-level operation, "mutation" the program-level one.
-- **Dead end**: an entry at the step cap, which `extend` refuses (no stop flag to flip).
-  **Rebase** (follow-up item 2, not implemented): start a new lineage whose base is that
+- **Dead end**: an entry `extend` refuses: at `max_depth`, or one whose choices no longer
+  decode. **Rebase** (follow-up item 2, deferred): start a new lineage whose base is that
   entry's final program, so evolution continues with a fresh choice sequence at the price of
   the base being outside it.
 - **LineageCache** (`fuzz.LineageCache`): the lineages behind corpus entries, by entry id, so

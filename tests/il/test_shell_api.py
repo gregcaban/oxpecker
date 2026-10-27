@@ -64,3 +64,16 @@ def test_strategies_alone_in_a_fresh_interpreter_registers_everything():
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
     assert "<Generated " in out and "<Snippet while_loop" in out and "'plain'" in out
+
+
+def test_options_from_a_shell_are_forgiving():
+    """`max_statements` below the default minimum lowers the minimum instead of raising; plain
+    sets are accepted for the set-valued options; a real contradiction says what it is."""
+    import pytest
+    from oxpecker.il.options import GenOptions
+
+    assert len(generate(seed=1, max_statements=2).code) > 0
+    assert GenOptions(max_statements=2).min_statements == 2 and GenOptions().min_statements == 3
+    assert GenOptions(families={"values", "control"}).families == frozenset({"values", "control"})
+    with pytest.raises(ValueError, match="max_statements=2 is below min_statements=3"):
+        GenOptions(min_statements=3, max_statements=2)

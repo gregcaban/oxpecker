@@ -11,9 +11,12 @@ ALL_TOGGLES = frozenset({"let", "generators", "for-of", "destructuring", "spread
 TOGGLE_LET = "let"     # named here so the mutators can test for it without spelling a keyword
 
 
+DEFAULT_MIN_STATEMENTS = 3
+
+
 @dataclass(frozen=True)
 class GenOptions:
-    min_statements: int = 3
+    min_statements: int | None = None   # None: DEFAULT_MIN_STATEMENTS, lowered to max_statements when that is smaller
     max_statements: int = 12
     max_depth: int = 3
     probe_every: int = 1            # a Probe after every n top-level statements; 0 = none
@@ -30,10 +33,15 @@ class GenOptions:
             value = getattr(self, name)
             if value is not None and not isinstance(value, frozenset):
                 object.__setattr__(self, name, frozenset(value))
-        if self.min_statements < 0 or self.max_statements < self.min_statements:
-            raise ValueError("statement bounds")
+        if self.min_statements is None:
+            object.__setattr__(self, "min_statements", min(DEFAULT_MIN_STATEMENTS, self.max_statements))
+        if self.min_statements < 0 or self.max_statements < 0:
+            raise ValueError(f"statement bounds must not be negative: min_statements={self.min_statements}, "
+                             f"max_statements={self.max_statements}")
+        if self.max_statements < self.min_statements:
+            raise ValueError(f"max_statements={self.max_statements} is below min_statements={self.min_statements}")
         if self.max_depth < 0:
-            raise ValueError("max_depth")
+            raise ValueError(f"max_depth must not be negative: {self.max_depth}")
         unknown = self.toggles - ALL_TOGGLES
         if unknown:
             raise ValueError(f"unknown toggles: {sorted(unknown)}")

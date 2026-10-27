@@ -28,6 +28,18 @@ def test_unsupported_in_both_modes_is_skipped():
     assert compare(a, c).kind == HARD            # one mode finished, the other could not: still a finding
 
 
+def test_compiled_refusal_caught_by_the_program_is_skipped():
+    """A pause inside the program's own try/catch: the interpreter records it, the compiled mode's
+    refusal is swallowed by the catch and both modes go on to throw or finish (2026-10-27
+    campaign). Same class as both-unsupported."""
+    from oxpecker.harness.compare import SKIP
+    a = Outcome(mode="interpreted", status="throw", trace=['"step" | 1'], continuations=['pause("in-try")'])
+    b = Outcome(mode="compiled", status="throw", trace=['"step" | 1'], continuations=[])
+    assert compare(a, b).kind == SKIP
+    c = Outcome(mode="compiled", status="throw", trace=['"step" | 1'], continuations=['pause("in-try")'])
+    assert compare(a, c).kind == EQUAL
+
+
 def test_java_trace_identity_hashes_are_canonicalised_too():
     a = Outcome(mode="interpreted", status="ok", javaTrace=['typeOf("dev.oxpecker.harness.JavaProbe@ef2de") -> "String"'])
     b = Outcome(mode="compiled", status="ok", javaTrace=['typeOf("dev.oxpecker.harness.JavaProbe@a7df") -> "String"'])

@@ -605,10 +605,27 @@ MUTATORS: tuple[tuple[str, Callable], ...] = (
     ("number_flip", number_flip_mutation),
 )
 MUTATOR_BY_NAME = dict(MUTATORS)
+# Draw weights (G50). `combine` appends a whole fresh program, so it reaches new coverage almost by
+# construction and drags the corpus towards large programs (212 of 798 productive steps at a 1/9
+# share in the first campaigns); `codegen` inserts a generated statement and was next (154).
+MUTATOR_WEIGHTS: dict[str, int] = {"combine": 1, "codegen": 2}
+DEFAULT_MUTATOR_WEIGHT = 3
+_WEIGHTED: tuple[int, ...] = tuple(i for i, (name, _) in enumerate(MUTATORS)
+                                   for _ in range(MUTATOR_WEIGHTS.get(name, DEFAULT_MUTATOR_WEIGHT)))
 
 
 def mutators() -> list[str]:
     return [name for name, _ in MUTATORS]
+
+
+def mutator_weights() -> dict[str, int]:
+    """Each mutator's draw weight; its share of lineage steps is weight over the total."""
+    return {name: MUTATOR_WEIGHTS.get(name, DEFAULT_MUTATOR_WEIGHT) for name, _ in MUTATORS}
+
+
+def _weighted_mutator(draw) -> tuple[str, Callable]:
+    """One index draw into the fixed weight-expanded list (as the generator pools, G6)."""
+    return MUTATORS[_WEIGHTED[draw(st.integers(0, len(_WEIGHTED) - 1))]]
 
 
 # ------------------------------------------------------------------------------- mutation and lineages
@@ -624,7 +641,7 @@ def try_mutation(draw, program, name: str | None = None, step: int = 1, an: Anal
     options = _options(program)
     an = an or analyse(code, strict=options.strict)
     if name is None:
-        name, strategy = pick(draw, MUTATORS)
+        name, strategy = _weighted_mutator(draw)
     else:
         strategy = MUTATOR_BY_NAME[name]
     child = draw(strategy(program, an, step=step))
@@ -660,11 +677,19 @@ class Lineage:
     base: Program
     steps: list[Step] = field(default_factory=list)
     rejected: int = 0
+    cap: int = 0                   # the `steps` the lineage was drawn with: its maximum depth
+    attempted_by: dict[str, int] = field(default_factory=dict)   # mutator -> steps tried (G51)
+    rejected_by: dict[str, int] = field(default_factory=dict)    # mutator -> steps that did not verify
 
     @property
     def depth(self) -> int:
         """Steps drawn so far, accepted or rejected: what `evolved` counts against its cap."""
         return len(self.steps) + self.rejected
+
+    @property
+    def at_cap(self) -> bool:
+        """Ended by the cap rather than by a "one more?" False: its last choice is not a stop flag."""
+        return self.depth >= self.cap
 
     @property
     def program(self) -> Program:
@@ -707,20 +732,24 @@ def evolved(draw, options: GenOptions = GenOptions(), steps: int = 4, base=None,
 
     With `parent`, the lineage continues that one: its base and steps are kept (copied), no
     choice is drawn for them, and the step count and numbering carry on where it stopped, so the
-    choices drawn here are exactly those a full replay draws after the parent's stop flag."""
+    choices drawn here are exactly those a full replay draws after the parent's stop flag.
+    `steps` is the cap on the whole lineage's depth; `fuzz.extend` raises it per round (G49)."""
     if parent is not None:
-        lineage = Lineage(parent.base, list(parent.steps), parent.rejected)
+        lineage = Lineage(parent.base, list(parent.steps), parent.rejected, steps,
+                          dict(parent.attempted_by), dict(parent.rejected_by))
     else:
         base_program = base.program if isinstance(base, Generated) else base if isinstance(base, Program) else draw(programs(options)).program
-        lineage = Lineage(base_program)
+        lineage = Lineage(base_program, cap=steps)
     k = lineage.depth
     while k < steps and draw(st.booleans()):
         k += 1
-        which = draw(st.integers(0, len(MUTATORS) - 1))
+        name, _ = _weighted_mutator(draw)
+        lineage.attempted_by[name] = lineage.attempted_by.get(name, 0) + 1
         try:
-            name, child = draw(try_mutation(lineage.program, MUTATORS[which][0], step=k))
+            name, child = draw(try_mutation(lineage.program, name, step=k))
         except Rejected:
             lineage.rejected += 1
+            lineage.rejected_by[name] = lineage.rejected_by.get(name, 0) + 1
             continue
         lineage.steps.append(Step(name, child))
     return lineage

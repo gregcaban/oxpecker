@@ -65,7 +65,7 @@ A three-minute campaign afterwards (seed 5, no compaction): 997 runs at 5.5 runs
 (item 2); the ten-minute campaign before the change ran at 3.6 runs/s. Its hard signatures
 were the continuation pair and the recorded top-level multiply-by-zero regression.
 
-## 2. The step cap makes corpus entries dead ends: rebase
+## 2. The step cap makes corpus entries dead ends: rebase — per-round cap done 2026-10-27 (G49), rebasing deferred
 
 **Observation.** `steps` (default 5) caps a lineage's total depth, not the number of steps per
 extension round. An entry at the cap cannot be extended (`extend` returns None: its last choice
@@ -96,7 +96,13 @@ keeps everything shrinkable (item 1 makes it affordable) but still grows the cho
 without bound; the corpus would need compaction (G45 says compaction is too expensive to run on insert)
 or a rebase once the sequence nears the buffer anyway.
 
-## 3. `combine` dominates what reaches new coverage
+**Done: the per-round cap** (G49). `steps` is now per round; the child's cap is the parent's
+depth plus `steps`, recorded on the lineage and the entry and used by `replay`; `max_depth`
+(default 20, `--max-lineage-depth`) is the only dead end. Rebasing stays on this list for the
+day a campaign shows entries at `max_depth` (`stats["at-max-depth"]`); until then it is not
+worth its cost in shrinkability.
+
+## 3. `combine` dominates what reaches new coverage — weights done 2026-10-27 (G50)
 
 **Observation.** Of the 798 mutation steps recorded in the ten-minute run's corpus entries,
 `combine` accounts for 212 and `codegen` for 154; `number_flip` for 11. The mutators are drawn
@@ -111,12 +117,29 @@ deciding whether a child enters the corpus (new probes divided by the instructio
 added, with a threshold), or cap the instruction count of corpus entries. Measure with the
 mutator-usage count above after each change; the number to watch is new probes per run.
 
-## 4. Mutation rejections are not aggregated
+**Done: weights** (G50): `combine` 1, `codegen` 2, the rest 3 (`mutate.MUTATOR_WEIGHTS`).
+The per-mutator `corpus` count in the run summary (item 4) is the measure; coverage per added
+instruction and an instruction cap remain options if the corpus still grows large.
+
+## 4. Mutation rejections are not aggregated — done 2026-10-27 (G51)
 
 `Lineage.rejected` counts the steps a lineage skipped because the child did not verify; the run
 summary does not sum them. Add `stats["rejected-steps"]` and a per-mutator breakdown (which
 mutator's children fail verification most) so the 35 % rejection bound of design §10 item 8 is
 observed in campaigns, not only in the unit test.
+
+**Done** (G51): `stats["steps-attempted"]`, `stats["steps-rejected"]`, and `mutators[name]`
+with `attempted`, `rejected` and `corpus` (steps of the entries added) in `last-run.json`.
+
+**First measurement** (three minutes, seed 5, after items 1–4): 711 runs at 3.9 runs/s,
+corpus 252, 16 567 probes, deepest entry 13 steps, 53 entries deeper than the old cap of 5,
+no extension refused. Steps attempted 1 273, rejected 284 (22 %, under the 35 % bound), but
+not evenly: `number_flip` 133 of 163 (not applicable without a number variable, item 6) and
+`activation` 59 of 171. Productive steps per mutator: codegen 66, splice 57, input 47,
+declaration_kind 44, combine 41 (11 % of 368, down from 27 %), operation 38, reassign 34,
+activation 33, number_flip 8. Entry size median 75 instructions, largest 421. The run rate
+is below the 5.5 runs/s of the three-minute run before the per-round cap: deeper lineages
+cost more per extension and per Rhino run, which is the trade the cap makes.
 
 ## 5. Compaction as a separate pass
 

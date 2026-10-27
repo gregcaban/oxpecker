@@ -248,8 +248,7 @@ def _gen_options(args: argparse.Namespace):
 
     kw: dict[str, Any] = {"strict": args.strict}
     if args.max_statements is not None:
-        kw["max_statements"] = args.max_statements
-        kw["min_statements"] = min(GenOptions.min_statements, args.max_statements)
+        kw["max_statements"] = args.max_statements       # min_statements follows it when smaller (GenOptions)
     if args.max_depth is not None:
         kw["max_depth"] = args.max_depth
     if args.family:
@@ -391,7 +390,8 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                        findings_dir=Path(args.findings_dir) if args.findings_dir else findings.DEFAULT_DIR,
                        shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
                        source_shrink_budget=args.source_shrink_budget,
-                       language_version=args.language_version, client=client, quiet=args.quiet)
+                       language_version=args.language_version, client=client, quiet=args.quiet,
+                       max_depth=args.max_lineage_depth)
     print(json.dumps({k: v for k, v in summary.items() if k != "signatures"}, indent=1))
     if summary["signatures"]:
         print("hard signatures seen:")
@@ -460,7 +460,8 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("-o", "--corpus", required=True, help="corpus directory (corpus.jsonl, coverage.exec); resumed if present")
     fz.add_argument("-n", "--iterations", type=int, help="stop after N runs")
     fz.add_argument("--seconds", type=float, help="stop after this many seconds")
-    fz.add_argument("--steps", type=int, default=5, help="mutation steps per lineage at most (Fuzzilli: 5)")
+    fz.add_argument("--steps", type=int, default=5, help="mutation steps per round at most: a fresh lineage or one extension (Fuzzilli: 5)")
+    fz.add_argument("--max-lineage-depth", type=int, default=20, help="safety cap on a lineage's depth (mutation steps) over all extension rounds")
     fz.add_argument("--p-new", type=float, default=0.2, help="probability of a fresh lineage instead of extending a corpus entry")
     fz.add_argument("--seed", type=int)
     fz.add_argument("--shrink-budget", type=int, default=150, help="harness runs Hypothesis may spend shrinking one finding")

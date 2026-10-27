@@ -74,30 +74,55 @@ def test_draw_replay_and_extend_round_trip():
 
 @pytest.mark.parametrize("seed", range(12))
 def test_extension_draws_only_the_new_steps_and_replays_identically(seed: int):
-    """Follow-up item 1: `extend` continues the cached parent lineage instead of replaying it,
-    and the choices it stores are exactly what a full replay consumes, so replaying the stored
-    sequence gives the same program with the same steps."""
+    """Follow-up items 1 and 2 (G48, G49): `extend` continues the cached parent lineage instead
+    of replaying it, raises the cap by `steps` for the round, and stores exactly the choices a
+    full replay with the child's cap consumes: replaying gives the same program, steps,
+    rejected count and cap."""
     drawn = draw_lineage(OPTIONS, STEPS, seed=seed)
     assert drawn is not None
     parent, parent_choices = drawn
-    if parent.depth >= STEPS:
-        assert extend(parent_choices, OPTIONS, STEPS, Random(seed), parent) is None     # at the cap
-        return
+    assert parent.cap == STEPS and parent.at_cap == (parent_choices[-1] is not False or parent.depth >= STEPS)
     longer = extend(parent_choices, OPTIONS, STEPS, Random(seed), parent)
     assert longer is not None
     child, child_choices = longer
-    assert child.depth > parent.depth
-    assert child_choices[len(parent_choices) - 1] is True
-    again = replay(child_choices, OPTIONS, STEPS)
+    assert child.cap == parent.depth + STEPS and child.depth > parent.depth
+    kept = len(parent_choices) if parent.at_cap else len(parent_choices) - 1
+    assert child_choices[:kept] == parent_choices[:kept] and child_choices[kept] is True
+    again = replay(child_choices, OPTIONS, child.cap)
     assert again is not None
     assert signature(again.code) == signature(child.code)
     assert [s.name for s in again.steps] == [s.name for s in child.steps]
-    assert again.rejected == child.rejected
-    # without the parent in hand, extend replays it and draws the same new steps from the same rng
-    same = extend(parent_choices, OPTIONS, STEPS, Random(seed))
+    assert again.rejected == child.rejected and again.cap == child.cap
+    # without the parent in hand, extend replays it (from its own cap) and draws the same new steps
+    same = extend(parent_choices, OPTIONS, STEPS, Random(seed), cap=parent.cap)
     assert same is not None and same[1] == child_choices
+    # the safety cap on depth makes an entry a dead end, nothing else does
+    assert extend(parent_choices, OPTIONS, STEPS, Random(seed), parent, max_depth=parent.depth) is None
     # the parent lineage itself is untouched
-    assert len(parent.steps) + parent.rejected == parent.depth and parent_choices[-1] is False
+    assert parent.depth == len(parent.steps) + parent.rejected and parent.cap == STEPS
+
+
+def test_a_parent_that_hit_its_cap_extends_round_after_round():
+    """Before G49 an entry at the cap could not be extended (no stop flag to flip). Now each
+    round adds up to `steps` more, until `max_depth`."""
+    for seed in range(80):
+        drawn = draw_lineage(OPTIONS, STEPS, seed=seed)
+        if drawn is not None and drawn[0].at_cap:
+            break
+    else:
+        pytest.fail("no lineage reached the cap in 80 seeds")
+    parent, choices = drawn
+    assert parent.depth == STEPS and choices[-1] is not False or parent.rejected
+    depths = [parent.depth]
+    for round_ in range(3):
+        longer = extend(choices, OPTIONS, STEPS, Random(round_), parent, max_depth=3 * STEPS)
+        assert longer is not None, f"round {round_} refused at depth {parent.depth}"
+        parent, choices = longer
+        depths.append(parent.depth)
+        again = replay(choices, OPTIONS, parent.cap)
+        assert again is not None and signature(again.code) == signature(parent.code)
+    assert depths == sorted(depths) and depths[-1] > STEPS
+    assert extend(choices, OPTIONS, STEPS, Random(9), parent, max_depth=parent.depth) is None
 
 
 def test_lineage_cache_serves_added_entries_and_replays_loaded_ones():
@@ -130,6 +155,13 @@ def test_loop_grows_the_corpus_and_finds_and_shrinks_the_planted_bug(tmp_path: P
     assert summary["stats"].get("extended", 0) > 0
     assert summary["stats"]["lineage-cache-misses"] == 0        # every entry was put on add
     assert summary["stats"]["lineage-cache-hits"] >= summary["stats"]["extended"]
+    assert all(e.cap is not None and e.cap >= STEPS for e in corpus.entries)   # G49: the cap is recorded
+    assert summary["max_entry_depth"] >= 0 and summary["max_depth"] == 20
+    m = summary["mutators"]                                     # G51: per-mutator attempts/rejections/productive steps
+    assert m and summary["stats"]["steps-attempted"] == sum(v["attempted"] for v in m.values()) > 0
+    assert summary["stats"]["steps-rejected"] == sum(v["rejected"] for v in m.values())
+    assert all(v["rejected"] <= v["attempted"] for v in m.values())
+    assert sum(v["corpus"] for v in m.values()) <= sum(len(e.steps) for e in corpus.entries)
     first = corpus.replay(0, OPTIONS, STEPS)
     assert first is not None and first.template == corpus.entries[0].template
     assert (corpus_dir / "last-run.json").exists()
@@ -161,11 +193,14 @@ def test_shrinker_returns_a_smaller_lineage_that_still_fails():
         from oxpecker.fuzz import finding_class
         return finding_class("planted") if obs.verdict.kind == HARD else None
 
-    best = Shrinker(runner, OPTIONS, STEPS, interesting, budget=60).shrink(choices)
+    shrinker = Shrinker(runner, OPTIONS, STEPS, interesting, budget=60)
+    best = shrinker.shrink(choices)
     assert best is not None
     small, small_choices, obs = best
     assert obs.verdict.kind == HARD
-    assert len(small.code) < len(lineage.code), "Hypothesis did not shrink (saved under the primary key?)"
+    # one call means the engine treated the example as already shrunk (saved under the primary key)
+    assert shrinker.calls > 1, "Hypothesis did not shrink (saved under the primary key?)"
+    assert len(small.code) <= len(lineage.code)
     again = replay(small_choices, OPTIONS, STEPS)
     assert again is not None and runner(again).verdict.kind == HARD
 

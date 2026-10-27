@@ -113,6 +113,12 @@ def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_m
         # neither mode ran the program to its end (a continuation captured across a non-JavaScript
         # frame, or captured at all in the compiled mode): the partial traces differ by construction
         return Verdict(SKIP, [f"both unsupported ({a.reason} / {b.reason})"])
+    paused = {o.mode: bool(o.continuations) for o in (a, b)}
+    if paused.get("interpreted") and not paused.get("compiled") and "unsupported" not in (a.status, b.status):
+        # the interpreter paused; the compiled mode recorded no continuation and did not report the
+        # refusal, so the program's own try/catch swallowed it (G42): everything after that point
+        # differs by construction, like the both-unsupported case
+        return Verdict(SKIP, ["interpreted paused, compiled refusal caught by the program (continuations)"])
     if a.status in slow or b.status in slow:
         o = a if a.status in slow else b
         return Verdict(SOFT, [f"{o.mode} {o.status} ({o.reason}) while {(b if o is a else a).mode} {(b if o is a else a).status}"])
