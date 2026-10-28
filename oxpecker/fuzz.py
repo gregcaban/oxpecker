@@ -275,6 +275,11 @@ def finding_class(signature: str) -> type[FindingError]:
     return cls
 
 
+class Exhausted(BaseException):
+    """Raised by the lineage test once the shrink budget is spent. Not an Exception: Hypothesis
+    catches those as test failures and keeps shrinking, this one leaves the engine at once."""
+
+
 class Reached(Exception):
     """Raised by the compaction test while the lineage still reaches the required probes."""
 
@@ -307,7 +312,9 @@ class Shrinker:
         @given(evolved(self.options, cap if cap is not None else self.steps))
         def test(l: Lineage) -> None:
             if self.calls >= self.budget:
-                return
+                # Budget spent: leave the engine now. Returning instead would let Hypothesis go
+                # on building candidates (hundreds, 25 ms each) that are never run; `best` is final.
+                raise Exhausted()
             self.calls += 1
             obs = self.runner(l)
             exc = self.interesting(l, obs)
@@ -320,6 +327,8 @@ class Shrinker:
         try:
             test()
         except (FindingError, Reached):
+            pass
+        except Exhausted:                    # budget spent inside the engine
             pass
         except HypothesisException:          # flaky: a once-per-JVM probe or a non-deterministic run
             pass
