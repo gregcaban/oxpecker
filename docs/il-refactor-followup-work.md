@@ -141,6 +141,25 @@ activation 33, number_flip 8. Entry size median 75 instructions, largest 421. Th
 is below the 5.5 runs/s of the three-minute run before the per-round cap: deeper lineages
 cost more per extension and per Rhino run, which is the trade the cap makes.
 
+**Hour-long measurement** (seed 11, `max_depth` 20, known signatures loaded, 2026-10-27):
+7 343 runs at 2.0 runs/s, corpus 4 517, 18 081 of 46 447 probes covered, deepest entry 20
+with 17 extensions refused at `max_depth` (so rebasing, item 2, is still not worth doing).
+Steps attempted 12 820, rejected 2 462 (19 %); `number_flip` again rejected 1 392 of 1 618.
+Corpus steps per mutator: declaration_kind 914, input 899, reassign 863, splice 862,
+operation 851, activation 783, codegen 699, combine 437 (7 %), number_flip 148. Verdicts:
+equal 1 877, java-types 4 558 (62 % of runs; 109 distinct Integer-vs-Double signatures, one
+class), hard 609 (582 continuation differences, 16 multiply-by-zero, 7 super-property
+write-backs under new signatures, 3 under coarse status signatures), soft 12, skip 62,
+discard 225. The run rate halved against the three-minute run for two reasons: the lineage
+cache (capacity 512) lost 3 444 of 5 923 lookups once the corpus outgrew it, so most
+extensions replayed their parent (237 ms against 92 ms, item 1), and entries are larger.
+Findings: one new Rhino bug (`tests/regressions/compiled-bigint-relop-number-literal-local.js`)
+that sat under a known coarse signature, three reproducers that were the known super-property
+family again. Lesson: exact-string signatures are too fine when the probe prints an object
+(every prototype shape is a new signature for the same bug) and too coarse when only the
+status differs (two unrelated compiled-mode throws share one). `hard.jsonl` keeps the first
+program per signature, known or not, so triaging it per campaign is cheap and found the bug.
+
 ## 5. Compaction as a separate pass
 
 G45: compaction on insert made the loop twenty times slower for less coverage, because early in
@@ -150,6 +169,17 @@ with the same `Shrinker` and a per-entry budget; the loop itself never compacts.
 
 ## 6. Smaller items
 
+- `fuzz.LineageCache` has a fixed capacity of 512 lineages; an hour's corpus is nine times
+  that and 58 % of extensions fell back to replay. A lineage is a few hundred instructions
+  plus its choices, so the cache can simply follow the corpus size (or be unbounded with a
+  byte budget); measure the run rate before and after.
+- Finding signatures for de-duplication (item 4's lesson): a status-only signature should
+  carry the thrown error's name and message, and a value diff that prints an object should
+  not depend on its prototype's name. Until then, read the first program per known signature
+  in `hard.jsonl` after every campaign.
+- The super-property family (`super.__proto__` with compound or logical assignment) is found
+  again in every campaign because `__proto__` is the one accessor every object has; a lower
+  weight for `super_property_update` would buy time for other shapes.
 - The `operations` family's remaining throws are BigInt mixed with Number and Symbol in
   arithmetic, which are correct TypeErrors; `operand()` (G46) keeps them to ~15 % of draws.
   The next completion-rate item is the `calls` family at 75 %.
