@@ -6,7 +6,7 @@ difference is a bug candidate, shrunk to a small reproducer. This document descr
 it exists in the repository; the original brief it grew from is `docs/brief-2026-10-18-original.md`.
 Where the two differ, this one wins.
 
-Status: 2026-10-19 (with `oxpecker fuzz`). Rhino pinned at `b95f75d` (master, `2.0.0-SNAPSHOT`); 30 confirmed findings
+Status: 2026-10-19 (with `oxpecker fuzz`). Rhino pinned at `b95f75d` (master, `2.0.0-SNAPSHOT`); 33 confirmed findings
 in `tests/regressions/`.
 
 ## 1. Goal and scope

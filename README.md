@@ -90,7 +90,9 @@ because mutation happens on the generator's choices, not on JS text.
 
 ## Findings so far (pinned Rhino b95f75d)
 
-Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it):
+Each finding is explained, with what both modes do and which is right, in
+`docs/findings-explained.md`; `docs/upstream-crosscheck.md` has what Rhino already knows about
+each. Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it):
 
 - `direct-recursive-call-completion.js` — direct recursive call with an `n === 0` base case returns a wrong value in compiled mode.
 - `compiled-negative-zero-lost-in-int-arith.js` — `var n = -1; n * 0` is `-0` interpreted, `0` compiled (int-typed top-level variable).
@@ -103,6 +105,8 @@ Checked in under `tests/regressions/` (each must stay detected; `test_harness.py
 - `interpreted-super-increment-string-concat.js` — `super.x++` on a string concatenates (`"a1"`) in the interpreter.
 - `compiled-proxy-extra-has-trap-on-get.js` — `p.x` through a Proxy fires `has` before `get` in compiled mode.
 - `array-find-no-args-aioobe-both-modes.js` — `Array.find()` throws a raw `ArrayIndexOutOfBoundsException` past JS try/catch.
+- From `oxpecker fuzz` (2026-10-19): `compiled-bigint-in-number-typed-local.js` (`var b = -1n` / `var n = a * a` in a function throws in compiled mode), `error-tosource-null-npe-both-modes.js` (`Error.prototype.toSource.call(null)` NPE), `compiled-boxed-number-constant-identity.js` (compiled code reuses one boxed `Double` per constant, visible as `J.echo(c) === J.echo(c)`).
+- From `oxpecker fuzz` on the generation layer (2026-10-26/27 campaigns): `super-logical-assign-proto-writeback-interpreted.js` (`super.p ||=` writes the value it read back through `super` in the interpreter), `super-compound-assign-wrong-receiver-interpreted.js` (`super.p /=` reads with the wrong receiver), `compiled-top-level-multiply-by-zero-loses-sign.js` (top-level `x * 0` is `+0` compiled for negative `x`), `typed-array-set-no-args-aioobe-both-modes.js` (`TypedArray.prototype.set()` throws a raw `ArrayIndexOutOfBoundsException`), `compiled-bigint-relop-number-literal-local.js` (`v < 5` on a BigInt local or parameter throws only compiled).
 - From test262 (`oxpecker corpus test262`), `t262-*.js`, 14 root causes. Mode divergences: `apply` with a rest parameter on an array-like builds wrong arguments in the interpreter; generator-method `prototype` present interpreted / absent compiled; object-rest destructuring from a Proxy with a Symbol key (interpreter throws, compiler skips the trap); `Number(2n**1024n)` through a local throws only compiled; nested finally/throw inside a generator lets the throw escape only compiled; re-entrant `generator.next()` hits `FAILED ASSERTION` interpreted only; `yield` in a default parameter → `ClassFileFormatException`, `yield` from a catch inside for-of → `bad local variable type`, and `obj[p] &&= v` → `VerifyError`, all compiled only. Both-mode engine crashes: Proxy `getOwnPropertyDescriptor` returning undefined (NPE), `for (const [[x] = [1]] = []; …)` (NPE), `new Int8Array({length: 2**53})`, `BigInt.asIntN(2**32-1, 1n)`, string-iterator prototype confusion.
 - From Rhino's legacy Mozilla suite (`oxpecker corpus rhino-mozilla`): `compiled-yield-call-arg-verifyerror.js` (`z((yield 3))` → `VerifyError` in compiled mode), `compiled-relop-arg-stack-underflow.js` (`a(1 < 2)` from inside a function → `Stack underflow` in compiled mode), `nested-array-comprehension-bad-node-195.js` and `let-genexpr-switch-case-null-tokenstream.js` (JS1.7/1.8 comprehension forms crash both code generators), `string-doubling-overflow-negative-array-size.js` (2^31-char string).
 - `tests/seeds/` — the two test262 cases Rhino's own `test262.properties` tags as failing in one mode only, reproduced standalone.
