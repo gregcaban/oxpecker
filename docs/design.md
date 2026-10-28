@@ -7,7 +7,7 @@ it exists in the repository; the original brief it grew from is `docs/brief-2026
 Where the two differ, this one wins.
 
 Status: 2026-10-28. Rhino 1.9.2 from Maven Central (switched from master `b95f75d`, where the findings were
-made); 31 reproducers in `tests/regressions/` show on 1.9.2, 8 more under `master-only/` only on master.
+made); 33 reproducers in `tests/regressions/` show on 1.9.2, 7 more under `master-only/` only on master.
 
 ## 1. Goal and scope
 

@@ -92,7 +92,7 @@ because mutation happens on the generator's choices, not on JS text.
 Each finding is explained, with what both modes do and which is right, in
 `docs/findings-explained.md`; `docs/upstream-crosscheck.md` has what Rhino already knows about
 each. Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it).
-The eight under `tests/regressions/master-only/` were found on master `b95f75d` and do not show on
+The seven under `tests/regressions/master-only/` were found on master `b95f75d` and do not show on
 the 1.9.2 release the harness now runs (the modes agree, or compiled code falls back to the
 interpreter instead of crashing); they are kept for the next master build and skipped by the test:
 

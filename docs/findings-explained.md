@@ -2,7 +2,7 @@
 
 What oxpecker has found in Rhino `b95f75d` so far, one entry per root cause, with the program
 that shows it, what each mode does, which mode is right, and what we know about why. Written
-2026-10-27 from `tests/regressions/` (40 reproducers, 8 of them under `master-only/` because they
+2026-10-27 from `tests/regressions/` (40 reproducers, 7 of them under `master-only/` because they
 do not show on the 1.9.2 release the harness runs since 2026-10-28), `tests/seeds/` (2), the unsorted
 `tests/findings/` (3 reduced files, 5 hard + 1 soft + 18 java-types records) and the two scratch
 checks described in §6. Upstream status (issues, test262 expectations) is in
@@ -318,11 +318,14 @@ through `this` (Array.prototype) changes the object's prototype. `+=` assigns in
 and agrees, which is why only the short-circuit operators show it.
 
 **Compound assignment reads with the wrong receiver.**
-`super-compound-assign-wrong-receiver-interpreted.js`: with a `Date` instance as the literal's
-prototype, `super.__proto__ /= 10` throws `TypeError` interpreted (the getter ran with
-`Date.prototype` as `this`, and converting that to a number fails) and runs compiled. A plain
-`super.__proto__` read agrees, so the compound path alone passes the home object instead of
-`this` to the getter. Found by the hour-long fuzz campaign on 2026-10-27, the newest finding.
+`super-compound-assign-wrong-receiver-interpreted.js`: a getter on the prototype that reports
+its `this` sees the prototype under `super.g += ""` interpreted and the instance compiled; with a
+typed array as the prototype, `super.length += 1` therefore runs interpreted and throws
+`TypeError` compiled. A plain `super.g` read agrees, so the compound path alone passes the home
+object instead of `this` to the getter. The form found on master on 2026-10-27, `super.__proto__
+/= 10` with a `Date` prototype (interpreted `TypeError` from converting `Date.prototype` to a
+number), does not show on 1.9.2; the getter and typed-array forms came from the first 1.9.2
+campaign on 2026-10-28.
 
 ### 5.2 Interpreter frames and argument arrays
 
