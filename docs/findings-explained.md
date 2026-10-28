@@ -2,7 +2,8 @@
 
 What oxpecker has found in Rhino `b95f75d` so far, one entry per root cause, with the program
 that shows it, what each mode does, which mode is right, and what we know about why. Written
-2026-10-27 from `tests/regressions/` (39 reproducers), `tests/seeds/` (2), the unsorted
+2026-10-27 from `tests/regressions/` (40 reproducers, 8 of them under `master-only/` because they
+do not show on the 1.9.2 release the harness runs since 2026-10-28), `tests/seeds/` (2), the unsorted
 `tests/findings/` (3 reduced files, 5 hard + 1 soft + 18 java-types records) and the two scratch
 checks described in §6. Upstream status (issues, test262 expectations) is in
 `docs/upstream-crosscheck.md`; this document does not repeat it beyond a pointer per family.
@@ -46,7 +47,7 @@ difference). §5.7 has the example.
 
 ## 2. The map
 
-Forty-one entries (39 reproducers, two of them symptoms of one cause, plus the two seeds,
+Forty-two entries (40 reproducers, two of them symptoms of one cause, plus the two seeds,
 the continuation difference and the soft record), grouped by the part of Rhino that is wrong.
 "Right" names the mode that follows the spec; "both wrong" means neither does.
 
@@ -359,7 +360,7 @@ either. Both wrong.
 
 ### 5.3 Compiled code the JVM rejects
 
-Five reproducers where `Codegen` emits a method the class verifier refuses, so the compiled
+Six reproducers where `Codegen` emits a method the class verifier refuses, so the compiled
 mode crashes with a Java error before running a line, while the interpreter runs the same
 program normally. These are the easiest to file: the stack trace names the generated method.
 
@@ -370,6 +371,7 @@ program normally. These are the easiest to file: the stack trace names the gener
 | `t262-compound-assign-element-verifyerror.js` | `obj[p] &&= 2` inside a function | `VerifyError: Bad type on operand stack` |
 | `t262-yield-in-default-param-classfile-crash.js` | `function* g() { (x = yield) => {}; }` | `ClassFileFormatException: out of range variable` |
 | `t262-yield-in-forof-catch-verifyerror.js` | `yield` from a `catch` inside `for-of` in a generator | `IllegalStateException: bad local variable type: 0 at index: 10` |
+| `compiled-generator-let-in-conditional-block-before-yield.js` | `function* g(c) { if (c) { let x = 1; } yield 1; }` (1.9.2; `const` and `var` compile) | `IllegalStateException: bad local variable type: 0 at index: 7` |
 
 Notes per row. The relational-argument case needs the call to be inside another function and
 the callee to declare a parameter; `1 < 2` as a direct-call argument is tracked with the wrong
@@ -500,6 +502,7 @@ by `oxpecker fuzz` on 2026-10-28; the interpreter is right.
 | completion-rate test of the generation layer | 5.5 `TypedArray.set` |
 | `oxpecker fuzz`, 2026-10-26 and 27 campaigns | 3.3 second form, 3.4 second form, 5.1 write-back and receiver |
 | `oxpecker fuzz`, 2026-10-28 campaign | 5.8, the wider triggers of 3.4's second form |
+| `oxpecker fuzz` on 1.9.2, 2026-10-28 | 5.3 last row |
 
 Everything still under `tests/findings/` maps to a family above:
 

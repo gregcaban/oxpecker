@@ -359,11 +359,6 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if not quiet:
                 print(f"resumed: {len(corpus.entries)} corpus entries, {covered} probes already covered", file=sys.stderr)
 
-    def is_new_hard(l: Lineage, obs: Observation) -> type[Exception] | None:
-        v = obs.verdict
-        return finding_class(v.signature()) if v.kind == HARD and v.signature() not in known else None
-
-    shrinker = Shrinker(runner, options, steps, is_new_hard, budget=shrink_budget)
     lineages = LineageCache()
     attempted: Counter[str] = Counter()      # mutation steps tried this run, per mutator (G51)
     rejected: Counter[str] = Counter()       # of those, the ones whose child did not verify
@@ -415,6 +410,16 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 else:
                     known.add(sig)
                     stats["new-findings"] += 1
+                    # Shrink towards this finding's coarse signature, not "any unknown hard
+                    # verdict": the signature was just added to `known`, so the loop's own
+                    # predicate would reject every candidate (including the replay of the
+                    # finding itself) and Hypothesis would never start shrinking.
+                    coarse = v.coarse_signature()
+
+                    def same_bug(l: Lineage, o: Observation, coarse: str = coarse) -> type[Exception] | None:
+                        return finding_class(coarse) if o.verdict.kind == HARD and o.verdict.coarse_signature() == coarse else None
+
+                    shrinker = Shrinker(runner, options, steps, same_bug, budget=shrink_budget)
                     small = shrinker.shrink(choices, lineage.cap) or (lineage, choices, obs)
                     record_as, rec_run, rec_verdict = small[0], small[2].run, small[2].verdict
                     if client is not None and source_shrink_budget:
@@ -430,8 +435,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                         parent.found.append(sig)
                     if not quiet:
                         print(f"[finding] {rec_verdict.pretty()[:160]}\n          -> {path} "
-                              f"({len(record_as.source.splitlines())} lines, {len(small[0].steps)} lineage steps, "
-                              f"{shrinker.calls} shrink runs)", file=sys.stderr)
+                              f"({len(record_as.source.splitlines())} lines; lineage shrink {len(lineage.code)} -> "
+                              f"{len(small[0].code)} instructions, {len(lineage.steps)} -> {len(small[0].steps)} steps "
+                              f"in {shrinker.calls} runs; source shrink {len(small[0].source.splitlines())} -> "
+                              f"{len(record_as.source.splitlines())} lines)", file=sys.stderr)
             if obs.new_probes > 0:
                 entry = (choices, lineage, obs.new_probe_ids)
                 if compact_budget and obs.new_probe_ids:
