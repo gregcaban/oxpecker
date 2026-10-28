@@ -13,18 +13,21 @@ from ..builder import Builder
 from ..environment import methods_of
 from ..ops import Context, Declare, LoadBuiltin, Parameters
 from ..program import Var
-from ..strategies import arguments_for, generator, maybe, nested, pick, variable
+from ..strategies import arguments_for, generator, maybe, nested, pick, syntax_ok, variable
 from ..types import ANY, ARRAY, FUNCTION, NUMBER, OBJECT, STRING, Type
 
 
 @st.composite
-def parameters(draw, b: Builder, simple: bool = False) -> tuple[Parameters, list[Type]]:
+def parameters(draw, b: Builder, simple: bool = False, arrow: bool = False) -> tuple[Parameters, list[Type]]:
     """A parameter list sized by the visible variables, with a rest parameter sometimes
     (ProgramBuilder.swift:635-701) and types drawn from what is visible. `simple` forbids the
-    rest parameter: a function with a "use strict" directive must have a simple parameter list."""
+    rest parameter: a function with a "use strict" directive must have a simple parameter list.
+    `arrow` asks the capability table separately: Rhino 1.9.2 parses `function (a, ...r)` but
+    not `(a, ...r) =>`."""
     n_visible = len(b.visible())
     count = 0 if n_visible <= 1 else draw(st.integers(1, 2)) if n_visible <= 5 else draw(st.integers(2, 4))
-    has_rest = count > 0 and not simple and draw(maybe(0.2))
+    rest_ok = syntax_ok("arrow-rest") if arrow else syntax_ok("rest-params")
+    has_rest = count > 0 and not simple and rest_ok and draw(maybe(0.2))
     candidates = [NUMBER, STRING, OBJECT, FUNCTION, ARRAY]
     types = [ANY if draw(maybe(0.2)) else draw(st.sampled_from(candidates)) for _ in range(count)]
     return Parameters(count, has_rest=has_rest), types
@@ -60,7 +63,7 @@ def strict_function(draw, b: Builder) -> Var:
 @st.composite
 def arrow_function(draw, b: Builder) -> Var:
     """An arrow function with a generated body (no call: arrows are mostly used as arguments)."""
-    params, types = draw(parameters(b))
+    params, types = draw(parameters(b, arrow=True))
     with b.arrow_function(params, types=types) as (f, args):
         draw(nested(b))
         if b.visible():
@@ -200,7 +203,8 @@ def function_with_arguments_access(draw, b: Builder) -> Var:
     return f
 
 
-@generator("new_target", family="calls", weight=3, context=Context.SUBROUTINE, source="CodeGenerators.swift:3599")
+@generator("new_target", family="calls", weight=3, context=Context.SUBROUTINE, source="CodeGenerators.swift:3599",
+           syntax="new-target")
 def new_target(b: Builder) -> Var:
     """`new.target`."""
     return b.new_target()

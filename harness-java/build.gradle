@@ -42,7 +42,7 @@ tasks.register('fatJar', Jar) {
     archiveBaseName = 'oxpecker-harness'
     archiveClassifier = 'all'
     archiveVersion = ''
-    manifest { attributes 'Main-Class': 'dev.oxpecker.harness.Harness' }
+    manifest { attributes 'Main-Class': 'dev.oxpecker.harness.Harness', 'Rhino-Version': rhinoVersion }
     from sourceSets.main.output
     dependsOn configurations.runtimeClasspath
     from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }

@@ -10,7 +10,6 @@ import org.mozilla.javascript.JavaScriptException;
 import org.mozilla.javascript.RhinoException;
 import org.mozilla.javascript.Script;
 import org.mozilla.javascript.ScriptableObject;
-import org.mozilla.javascript.TopLevel;
 import org.mozilla.javascript.Undefined;
 import org.mozilla.javascript.WrappedException;
 
@@ -81,8 +80,8 @@ final class ModeRunner {
             cx.putThreadLocal(HarnessFactory.BUDGET_KEY, new Budget(req.instructionBudget(), req.wallMs()));
 
             // No LiveConnect, no shared state: a fresh scope per case and per mode.
-            TopLevel scope = cx.initSafeStandardObjects(new TopLevel());
-            ScriptableObject global = scope.getGlobalThis();
+            ScriptableObject scope = RhinoCompat.newTopLevel(cx);
+            ScriptableObject global = RhinoCompat.globalThis(scope);
             host.install(cx, scope, req.seed());
 
             String src = req.source;
@@ -189,7 +188,7 @@ final class ModeRunner {
      * value, logging every round. A compiled script runs plainly: its __pause() calls fail
      * inside Rhino, which the normal exception classification reports.
      */
-    private static Object execute(Context cx, TopLevel scope, ScriptableObject global, Script script,
+    private static Object execute(Context cx, ScriptableObject scope, ScriptableObject global, Script script,
             Request req, Host host, Outcome o) {
         if (!req.continuations() || !Boolean.FALSE.equals(o.compiledActually)) {
             return script.exec(cx, scope, global);

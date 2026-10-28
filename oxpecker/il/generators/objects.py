@@ -18,7 +18,7 @@ from ..environment import INDEX_KEYS, INTERESTING_KEYS, ORDINARY_KEYS, Builtins,
 from ..ops import BinaryOperator, Context, DeclarationKind, Parameters, PropertyFlag, PropertyType
 from ..ops import ArrayElement, ArrayPattern, Binding, ObjectPattern, ObjectProperty
 from ..program import Var
-from ..strategies import assignable, generator, maybe, nested, pick, statements, variable
+from ..strategies import assignable, generator, maybe, nested, pick, statements, syntax_ok, variable
 from ..types import ANY, ARRAY, FUNCTION, NULLISH, NUMBER, OBJECT, Key, Type
 
 TRAP_KEYS = (Keys.GET, Keys.SET, Keys.HAS, Key("deleteProperty"), Key("ownKeys"), Key("getOwnPropertyDescriptor"),
@@ -281,7 +281,7 @@ def object_static(draw, b: Builder, obj: Var) -> Var:
 def destruct_array(draw, b: Builder, arr: Var) -> tuple[Var, ...]:
     """`var [a, , b, ...rest] = arr`."""
     elements = tuple(ArrayElement(Binding() if draw(maybe(0.7)) else None) for _ in range(draw(st.integers(1, 4))))
-    rest = Binding() if draw(maybe(0.3)) else None
+    rest = Binding() if syntax_ok("array-rest") and draw(maybe(0.3)) else None
     return b.destruct(arr, ArrayPattern(elements, rest), draw(st.sampled_from(DeclarationKind)))
 
 
@@ -291,7 +291,7 @@ def destruct_object(draw, b: Builder, obj: Var) -> tuple[Var, ...]:
     """`var {a, b, ...rest} = obj`."""
     keys = draw(st.lists(a_key(b, obj), min_size=1, max_size=3, unique=True))
     props = tuple(ObjectProperty(k, Binding()) for k in keys)
-    return b.destruct(obj, ObjectPattern(props, has_rest=draw(maybe(0.3))))
+    return b.destruct(obj, ObjectPattern(props, has_rest=syntax_ok("object-rest") and draw(maybe(0.3))))
 
 
 @generator("destruct_array_reassign", family="objects", weight=5, inputs=(ARRAY,), toggle="destructuring", source="CodeGenerators.swift:2513")

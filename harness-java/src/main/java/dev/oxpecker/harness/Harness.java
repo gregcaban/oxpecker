@@ -44,8 +44,16 @@ public final class Harness {
 
     static Map<String, Object> info() {
         Map<String, Object> m = new LinkedHashMap<>();
+        // Rhino's own version string says "Rhino Snapshot" for release jars too (1.9.2), so the
+        // artifact version the jar was built with, stamped into the manifest by fatJar, comes first.
+        String bundled = null;
+        try (java.io.InputStream in = Harness.class.getResourceAsStream("/META-INF/MANIFEST.MF")) {
+            if (in != null) bundled = new java.util.jar.Manifest(in).getMainAttributes().getValue("Rhino-Version");
+        } catch (java.io.IOException ignored) {
+        }
         try (Context cx = Context.enter()) {
-            m.put("rhino", cx.getImplementationVersion());
+            String impl = cx.getImplementationVersion();
+            m.put("rhino", bundled != null ? bundled + " (" + impl + ")" : impl);
         }
         m.put("java", System.getProperty("java.version"));
         m.put("harness", "0.1.0");

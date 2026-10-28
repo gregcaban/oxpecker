@@ -6,7 +6,7 @@ const big3 = 10n;
 let f4 = WeakMap;
 const o5 = new f4();
 // [typed_array]
-var o8 = new Float32Array(37);
+var o8 = new Float64Array(37);
 __probe("step", o8, o5, f4, big3, arr2);
 // [repeat_loop]
 for (var i9 = 0; i9 < 23; i9++) {
@@ -34,7 +34,7 @@ __probe("step", n23, b22, n21, n19, b18, n17);
 const arr24 = [n21, b22, Array, o15, 8];
 __probe("step", arr24, n23, b22, n21, n19, b18);
 // [builtin]
-const f26 = escape;
+const f26 = eval;
 __probe("step", f26, arr24, n23, b22, n21, n19);
 function f27(p28, ...p29) {
     let b30 = arr2.includes();
@@ -55,7 +55,7 @@ function f27(p28, ...p29) {
     return arr14;
 }
 for (let i42 = 0; i42 < 100; i42++) {
-    var arr44 = f27(arr14, Float32Array);
+    var arr44 = f27(arr14, Float64Array);
 }
 __probe("warm", f27, f26, arr24, n23, b22, n21);
 // [java_numeric_pipeline]

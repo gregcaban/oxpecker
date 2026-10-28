@@ -18,11 +18,10 @@ Python (Hypothesis)                        Java harness (one JVM, Rhino embedded
 ## Setup
 
 ```bash
-# 1. Rhino at the pinned commit (JDK 21 to build): publishes org.mozilla:rhino:2.0.0-SNAPSHOT to ~/.m2
-(cd ../rhino && git checkout b95f75d && JAVA_HOME=/usr/local/opt/openjdk@21 ./gradlew :rhino:publishToMavenLocal -x test)
-# 2. Harness jar (the Rhino version is `rhinoVersion` in harness-java/gradle.properties)
+# 1. Harness jar, bundling Rhino 1.9.2 from Maven Central (`rhinoVersion` in harness-java/gradle.properties;
+#    a master snapshot built with `./gradlew :rhino:publishToMavenLocal` in a Rhino checkout works too)
 (cd harness-java && ./gradlew fatJar)
-# 3. Python
+# 2. Python
 python3.13 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 source .venv/bin/activate
 ```
@@ -88,11 +87,14 @@ because mutation happens on the generator's choices, not on JS text.
 | both timeout/resource | discard |
 | a mode reports `unsupported(continuations)` (Rhino refuses continuation capture outside the interpreter) | **hard**, own signature |
 
-## Findings so far (pinned Rhino b95f75d)
+## Findings so far (Rhino 1.9.2; found on master `b95f75d`)
 
 Each finding is explained, with what both modes do and which is right, in
 `docs/findings-explained.md`; `docs/upstream-crosscheck.md` has what Rhino already knows about
-each. Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it):
+each. Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it).
+The eight under `tests/regressions/master-only/` were found on master `b95f75d` and do not show on
+the 1.9.2 release the harness now runs (the modes agree, or compiled code falls back to the
+interpreter instead of crashing); they are kept for the next master build and skipped by the test:
 
 - `direct-recursive-call-completion.js` — direct recursive call with an `n === 0` base case returns a wrong value in compiled mode.
 - `compiled-negative-zero-lost-in-int-arith.js` — `var n = -1; n * 0` is `-0` interpreted, `0` compiled (int-typed top-level variable).

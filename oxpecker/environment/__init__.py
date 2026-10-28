@@ -43,12 +43,14 @@ SYNTAX: dict[str, str] = {
     "legacy-octal": "var a = 017;", "comma-in-for": "for (var i = 0, j = 1; i < 1; i++, j++) {}",
     "label-continue": "L: for (var i = 0; i < 2; i++) { continue L; }", "debugger": "debugger;", "getter-computed": "var o = {get [1]() { return 1; }};",
     "generator-method": "var o = {*g() {}};", "arrow-destructure": "var f = ({a}) => a;",
+    # Rhino 1.9.2 parses rest parameters on functions but not on arrows, and no rest element in patterns
+    "arrow-rest": "var f = (a, ...r) => r;", "array-rest": "var [a, ...r] = [1, 2];", "object-rest": "var {a, ...r} = {a: 1, b: 2};",
 }
 
 
 def probe_syntax(client: Any, language_version: int = 250) -> dict[str, dict[str, Any]]:
     """{name: {interpreted: status, compiled: status, supported: bool, verdict}} per snippet."""
-    from ...harness.compare import compare_run
+    from ..harness.compare import compare_run
     out: dict[str, dict[str, Any]] = {}
     for name, src in SYNTAX.items():
         run = client.run(src, language_version=language_version, id=f"syntax-{name}", source_name=f"syntax-{name}.js",

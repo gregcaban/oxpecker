@@ -39,7 +39,7 @@ function f15(p16, p17) {
     p16 = p17;
     p17 = p16;
     let n29 = 3;
-    var o30 = new Float16Array(n29);
+    var o30 = new Uint32Array(n29);
     return o30;
 }
 function f31(p32, p33, p34) {

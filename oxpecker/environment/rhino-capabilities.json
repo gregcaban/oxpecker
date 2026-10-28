@@ -28,6 +28,10 @@
    "isCtor": true,
    "length": 1
   },
+  "Call": {
+   "isCtor": true,
+   "length": 1
+  },
   "CallSite": {
    "isCtor": true,
    "length": 0
@@ -51,10 +55,6 @@
   "EvalError": {
    "isCtor": true,
    "length": 1
-  },
-  "Float16Array": {
-   "isCtor": true,
-   "length": 3
   },
   "Float32Array": {
    "isCtor": true,
@@ -176,6 +176,14 @@
    "isCtor": true,
    "length": 0
   },
+  "With": {
+   "isCtor": true,
+   "length": 0
+  },
+  "__GeneratorFunction": {
+   "isCtor": true,
+   "length": 1
+  },
   "decodeURI": {
    "isCtor": false,
    "length": 1
@@ -233,18 +241,17 @@
   "AggregateError": "function",
   "Array": "function",
   "ArrayBuffer": "function",
-  "ArrayIterator": "object",
   "BigInt": "function",
   "BigInt64Array": "function",
   "BigUint64Array": "function",
   "Boolean": "function",
+  "Call": "function",
   "CallSite": "function",
   "Continuation": "function",
   "DataView": "function",
   "Date": "function",
   "Error": "function",
   "EvalError": "function",
-  "Float16Array": "function",
   "Float32Array": "function",
   "Float64Array": "function",
   "Function": "function",
@@ -256,10 +263,7 @@
   "Iterator": "function",
   "JSON": "object",
   "JavaException": "function",
-  "JavaIterableIterator": "object",
-  "JavaMapIterator": "object",
   "Map": "function",
-  "Map Iterator": "object",
   "Math": "object",
   "NaN": "number",
   "Number": "function",
@@ -270,15 +274,11 @@
   "ReferenceError": "function",
   "Reflect": "object",
   "RegExp": "function",
-  "RegExpStringIterator": "object",
   "Script": "function",
   "Set": "function",
-  "Set Iterator": "object",
   "StopIteration": "object",
   "String": "function",
-  "StringIterator": "object",
   "Symbol": "function",
-  "Symbol(GeneratorPrototype)": "object",
   "SyntaxError": "function",
   "TypeError": "function",
   "URIError": "function",
@@ -288,6 +288,8 @@
   "Uint8ClampedArray": "function",
   "WeakMap": "function",
   "WeakSet": "function",
+  "With": "function",
+  "__GeneratorFunction": "function",
   "decodeURI": "function",
   "decodeURIComponent": "function",
   "encodeURI": "function",
@@ -312,6 +314,7 @@
    "name="
   ],
   "Array": [
+   "=",
    "at/1",
    "concat/1",
    "copyWithin/2",
@@ -356,11 +359,8 @@
    "Symbol(Symbol.unscopables)"
   ],
   "ArrayBuffer": [
-   "byteLength:acc",
-   "detached:acc",
-   "maxByteLength:acc",
-   "resizable:acc",
-   "resize/1",
+   "byteLength:err",
+   "detached:err",
    "slice/2",
    "transfer/0",
    "transferToFixedLength/0",
@@ -384,6 +384,7 @@
    "toString/0",
    "valueOf/0"
   ],
+  "Call": [],
   "CallSite": [
    "getColumnNumber/0",
    "getEvalOrigin/0",
@@ -402,12 +403,9 @@
   ],
   "Continuation": [],
   "DataView": [
-   "buffer:acc",
-   "byteLength:acc",
-   "byteOffset:acc",
-   "getBigInt64/1",
-   "getBigUint64/1",
-   "getFloat16/1",
+   "buffer:err",
+   "byteLength:err",
+   "byteOffset:err",
    "getFloat32/1",
    "getFloat64/1",
    "getInt16/1",
@@ -416,9 +414,6 @@
    "getUint16/1",
    "getUint32/1",
    "getUint8/1",
-   "setBigInt64/2",
-   "setBigUint64/2",
-   "setFloat16/2",
    "setFloat32/2",
    "setFloat64/2",
    "setInt16/2",
@@ -466,7 +461,6 @@
    "setUTCSeconds/2",
    "setYear/1",
    "toDateString/0",
-   "toGMTString/0",
    "toISOString/0",
    "toJSON/1",
    "toLocaleDateString/0",
@@ -476,8 +470,7 @@
    "toString/0",
    "toTimeString/0",
    "toUTCString/0",
-   "valueOf/0",
-   "Symbol(Symbol.toPrimitive)"
+   "valueOf/0"
   ],
   "Error": [
    "fileName=",
@@ -490,9 +483,6 @@
   "EvalError": [
    "message=",
    "name="
-  ],
-  "Float16Array": [
-   "BYTES_PER_ELEMENT="
   ],
   "Float32Array": [
    "BYTES_PER_ELEMENT="
@@ -530,7 +520,7 @@
    "has/1",
    "keys/0",
    "set/2",
-   "size:acc",
+   "size:err",
    "values/0",
    "Symbol(Symbol.iterator)",
    "Symbol([Symbol.getSize])",
@@ -575,25 +565,20 @@
   ],
   "RegExp": [
    "compile/2",
-   "dotAll:acc",
+   "dotAll=",
    "exec/1",
-   "flags:acc",
-   "global:acc",
-   "ignoreCase:acc",
+   "flags=",
+   "global=",
+   "ignoreCase=",
    "lastIndex=",
-   "multiline:acc",
+   "multiline=",
    "prefix/1",
-   "source:acc",
-   "sticky:acc",
+   "source=",
+   "sticky=",
    "test/1",
    "toSource/0",
    "toString/0",
-   "unicode:acc",
-   "Symbol(Symbol.match)",
-   "Symbol(Symbol.matchAll)",
-   "Symbol(Symbol.search)",
-   "Symbol(Symbol.replace)",
-   "Symbol(Symbol.split)"
+   "unicode="
   ],
   "Set": [
    "add/1",
@@ -608,7 +593,7 @@
    "isSubsetOf/1",
    "isSupersetOf/1",
    "keys/0",
-   "size:acc",
+   "size:err",
    "symmetricDifference/1",
    "union/1",
    "values/0",
@@ -674,7 +659,7 @@
    "Symbol(Symbol.iterator)"
   ],
   "Symbol": [
-   "description:acc",
+   "description:err",
    "toString/0",
    "valueOf/0",
    "Symbol(Symbol.toPrimitive)",
@@ -690,9 +675,6 @@
   ],
   "TypedArray": [
    "at/1",
-   "buffer:acc",
-   "byteLength:acc",
-   "byteOffset:acc",
    "copyWithin/2",
    "entries/0",
    "every/1",
@@ -708,7 +690,6 @@
    "join/1",
    "keys/0",
    "lastIndexOf/1",
-   "length:acc",
    "map/1",
    "reduce/1",
    "reduceRight/1",
@@ -736,11 +717,7 @@
    "BYTES_PER_ELEMENT="
   ],
   "Uint8Array": [
-   "BYTES_PER_ELEMENT=",
-   "setFromBase64/1",
-   "setFromHex/1",
-   "toBase64/0",
-   "toHex/0"
+   "BYTES_PER_ELEMENT="
   ],
   "Uint8ClampedArray": [
    "BYTES_PER_ELEMENT="
@@ -757,9 +734,13 @@
    "delete/1",
    "has/1",
    "Symbol(Symbol.toStringTag)"
+  ],
+  "__GeneratorFunction": [
+   "prototype=",
+   "Symbol(Symbol.toStringTag)"
   ]
  },
- "rhino": "Rhino Snapshot",
+ "rhino": "1.9.2 (Rhino Snapshot)",
  "statics": {
   "AggregateError": [
    "arity="
@@ -797,9 +778,6 @@
    "arity=",
    "isView/1"
   ],
-  "ArrayIterator": [
-   "next/0"
-  ],
   "BigInt": [
    "arity=",
    "asIntN/2",
@@ -814,6 +792,9 @@
    "arity="
   ],
   "Boolean": [
+   "arity="
+  ],
+  "Call": [
    "arity="
   ],
   "CallSite": [
@@ -833,16 +814,12 @@
   ],
   "Error": [
    "arity=",
-   "captureStackTrace/0",
+   "captureStackTrace/2",
    "isError/1",
    "prepareStackTrace=",
    "stackTraceLimit="
   ],
   "EvalError": [
-   "arity="
-  ],
-  "Float16Array": [
-   "BYTES_PER_ELEMENT=",
    "arity="
   ],
   "Float32Array": [
@@ -882,18 +859,9 @@
   "JavaException": [
    "arity="
   ],
-  "JavaIterableIterator": [
-   "next/0"
-  ],
-  "JavaMapIterator": [
-   "next/0"
-  ],
   "Map": [
    "arity=",
    "groupBy/2"
-  ],
-  "Map Iterator": [
-   "next/0"
   ],
   "Math": [
    "E=",
@@ -1045,17 +1013,11 @@
    "multiline:acc",
    "rightContext:acc"
   ],
-  "RegExpStringIterator": [
-   "next/0"
-  ],
   "Script": [
    "arity="
   ],
   "Set": [
    "arity="
-  ],
-  "Set Iterator": [
-   "next/0"
   ],
   "StopIteration": [],
   "String": [
@@ -1082,9 +1044,6 @@
    "toLowerCase/1",
    "toUpperCase/1"
   ],
-  "StringIterator": [
-   "next/0"
-  ],
   "Symbol": [
    "arity=",
    "for/1",
@@ -1102,11 +1061,6 @@
    "toPrimitive=",
    "toStringTag=",
    "unscopables="
-  ],
-  "Symbol(GeneratorPrototype)": [
-   "next/1",
-   "return/1",
-   "throw/1"
   ],
   "SyntaxError": [
    "arity="
@@ -1127,9 +1081,7 @@
   ],
   "Uint8Array": [
    "BYTES_PER_ELEMENT=",
-   "arity=",
-   "fromBase64/1",
-   "fromHex/1"
+   "arity="
   ],
   "Uint8ClampedArray": [
    "BYTES_PER_ELEMENT=",
@@ -1139,6 +1091,12 @@
    "arity="
   ],
   "WeakSet": [
+   "arity="
+  ],
+  "With": [
+   "arity="
+  ],
+  "__GeneratorFunction": [
    "arity="
   ],
   "decodeURI": [
@@ -1163,18 +1121,17 @@
    "AggregateError/2",
    "Array/1",
    "ArrayBuffer/1",
-   "ArrayIterator=",
    "BigInt/1",
    "BigInt64Array/3",
    "BigUint64Array/3",
    "Boolean/1",
+   "Call/1",
    "CallSite/0",
    "Continuation/0",
    "DataView/1",
    "Date/7",
    "Error/1",
    "EvalError/1",
-   "Float16Array/3",
    "Float32Array/3",
    "Float64Array/3",
    "Function/1",
@@ -1187,10 +1144,7 @@
    "J=",
    "JSON=",
    "JavaException/1",
-   "JavaIterableIterator=",
-   "JavaMapIterator=",
    "Map/0",
-   "Map Iterator=",
    "Math=",
    "NaN=",
    "Number/1",
@@ -1201,15 +1155,11 @@
    "ReferenceError/1",
    "Reflect=",
    "RegExp/2",
-   "RegExpStringIterator=",
    "Script/1",
    "Set/0",
-   "Set Iterator=",
    "StopIteration=",
    "String/1",
-   "StringIterator=",
    "Symbol/0",
-   "Symbol(GeneratorPrototype)=",
    "SyntaxError/1",
    "TypeError/1",
    "URIError/1",
@@ -1219,6 +1169,8 @@
    "Uint8ClampedArray/3",
    "WeakMap/0",
    "WeakSet/0",
+   "With/0",
+   "__GeneratorFunction/1",
    "__isProxy/1",
    "__jtype/1",
    "__pause/1",
@@ -1245,18 +1197,17 @@
    "AggregateError/2",
    "Array/1",
    "ArrayBuffer/1",
-   "ArrayIterator=",
    "BigInt/1",
    "BigInt64Array/3",
    "BigUint64Array/3",
    "Boolean/1",
+   "Call/1",
    "CallSite/0",
    "Continuation/0",
    "DataView/1",
    "Date/7",
    "Error/1",
    "EvalError/1",
-   "Float16Array/3",
    "Float32Array/3",
    "Float64Array/3",
    "Function/1",
@@ -1269,10 +1220,7 @@
    "J=",
    "JSON=",
    "JavaException/1",
-   "JavaIterableIterator=",
-   "JavaMapIterator=",
    "Map/0",
-   "Map Iterator=",
    "Math=",
    "NaN=",
    "Number/1",
@@ -1283,15 +1231,11 @@
    "ReferenceError/1",
    "Reflect=",
    "RegExp/2",
-   "RegExpStringIterator=",
    "Script/1",
    "Set/0",
-   "Set Iterator=",
    "StopIteration=",
    "String/1",
-   "StringIterator=",
    "Symbol/0",
-   "Symbol(GeneratorPrototype)=",
    "SyntaxError/1",
    "TypeError/1",
    "URIError/1",
@@ -1301,6 +1245,8 @@
    "Uint8ClampedArray/3",
    "WeakMap/0",
    "WeakSet/0",
+   "With/0",
+   "__GeneratorFunction/1",
    "__isProxy/1",
    "__jtype/1",
    "__pause/1",
@@ -1346,6 +1292,13 @@
   ]
  },
  "syntax": {
+  "array-rest": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
+   "verdict": "equal"
+  },
   "arrow": {
    "compiled": "ok",
    "detail": "",
@@ -1358,6 +1311,13 @@
    "detail": "",
    "interpreted": "ok",
    "supported": true,
+   "verdict": "equal"
+  },
+  "arrow-rest": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
    "verdict": "equal"
   },
   "async": {
@@ -1543,10 +1503,10 @@
    "verdict": "equal"
   },
   "new-target": {
-   "compiled": "ok",
+   "compiled": "syntax",
    "detail": "",
-   "interpreted": "ok",
-   "supported": true,
+   "interpreted": "syntax",
+   "supported": false,
    "verdict": "equal"
   },
   "nullish": {
@@ -1561,6 +1521,13 @@
    "detail": "",
    "interpreted": "ok",
    "supported": true,
+   "verdict": "equal"
+  },
+  "object-rest": {
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
+   "supported": false,
    "verdict": "equal"
   },
   "object-spread": {
@@ -1641,11 +1608,11 @@
    "verdict": "equal"
   },
   "spread-call": {
-   "compiled": "crash",
-   "detail": "HARD: interpreted crashed: java.lang.RuntimeException: 190; compiled crashed: java.lang.RuntimeException: Unexpected node type 190",
-   "interpreted": "crash",
+   "compiled": "syntax",
+   "detail": "",
+   "interpreted": "syntax",
    "supported": false,
-   "verdict": "hard"
+   "verdict": "equal"
   },
   "static-block": {
    "compiled": "syntax",
@@ -1703,5 +1670,8 @@
    "supported": true,
    "verdict": "equal"
   }
- }
+ },
+ "unreadable": [
+  "With"
+ ]
 }

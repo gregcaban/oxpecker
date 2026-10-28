@@ -14,9 +14,7 @@ import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.SerializableCallable;
-import org.mozilla.javascript.TopLevel;
 import org.mozilla.javascript.Undefined;
-import org.mozilla.javascript.VarScope;
 import org.mozilla.javascript.Wrapper;
 
 /**
@@ -37,7 +35,7 @@ final class Host {
     final List<String> continuations = new ArrayList<>();
     private Callable canon;
     private Callable errName;
-    private TopLevel scope;
+    private ScriptableObject scope;
 
     /** Canonical rendering of a value: text, Java leaf types, soft messages. */
     record Canonical(String text, String javaTypes, String soft) {}
@@ -46,12 +44,12 @@ final class Host {
      * Installs the host functions into {@code scope}. Compiles canon.js and prelude.js in
      * interpreter mode whatever {@code cx}'s mode is, then restores the mode.
      */
-    void install(Context cx, TopLevel scope, long seed) {
+    void install(Context cx, ScriptableObject scope, long seed) {
         this.scope = scope;
         boolean wasInterpreted = cx.isInterpretedMode();
         RhinoCompat.setInterpreted(cx, true);
         try {
-            ScriptableObject global = scope.getGlobalThis();
+            ScriptableObject global = RhinoCompat.globalThis(scope);
 
             define(scope, "print", 1, (c, s, thisObj, args) -> {
                 StringBuilder sb = new StringBuilder();
@@ -144,9 +142,9 @@ final class Host {
         return v != null && v.getClass().getName().startsWith("org.mozilla.javascript.NativeProxy");
     }
 
-    private static void define(TopLevel scope, String name, int length, SerializableCallable target) {
+    private static void define(ScriptableObject scope, String name, int length, SerializableCallable target) {
         LambdaFunction f = new LambdaFunction(scope, name, length, target);
-        ScriptableObject.putProperty(scope.getGlobalThis(), name, f);
+        ScriptableObject.putProperty(RhinoCompat.globalThis(scope), name, f);
     }
 
     private static String resource(String name) {

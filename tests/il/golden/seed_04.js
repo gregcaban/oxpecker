@@ -21,7 +21,7 @@ var v10 = o8[s9]();
 __probe("step", v10, s9, o8, f6, n4, n3);
 // [typed_array]
 const n12 = 29;
-var o13 = new Uint8ClampedArray(n12);
+var o13 = new Uint8Array(n12);
 __probe("step", o13, n12, v10, s9, o8, f6);
 // [computed_super_property]
 var o15 = {
@@ -37,7 +37,7 @@ function f18(p19, p20, p21, p22) {
     var o26 = {
         __proto__: p22,
         m() {
-            const v25 = super.toString(Date, Uint8ClampedArray);
+            const v25 = super.toString(Date, Uint8Array);
         },
     };
     const s27 = "m";
@@ -81,6 +81,6 @@ for (let i53 = 0; i53 < 10; i53++) {
     var v56 = f42(arr55, n4, arr55, f18);
 }
 __probe("warm", f42, f18, v17, o15, o13, n12);
-const v57 = f42(v10, v17, o8, Uint8ClampedArray);
+const v57 = f42(v10, v17, o8, Uint8Array);
 var v59 = f18(o13, n3, 0.5, [0.5]);
 __probe("end", v59, v57, f42, f18, v17, o15);

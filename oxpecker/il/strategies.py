@@ -18,6 +18,7 @@ from hypothesis import strategies as st
 from . import ops as O
 from .analysis import verify
 from .builder import Builder, BuilderError
+from .environment import SYNTAX_SUPPORTED
 from .lift import LiftOptions, lift
 from .ops import Context, Lift
 from .options import TOGGLE_LET, GenOptions
@@ -72,9 +73,12 @@ class GeneratorSpec:
     doc: str
     scaffolds: bool = False          # can open its own context when drawn outside it (design §7.2)
     is_block: bool = False           # opens a block: needs nesting budget
+    syntax: str | None = None        # a `syntax` key of the capability table this Rhino must support
 
     def applicable(self, b: Builder) -> bool:
         if self.toggle is not None and self.toggle not in b.options.toggles:
+            return False
+        if self.syntax is not None and self.syntax not in SYNTAX_SUPPORTED:
             return False
         if self.sloppy_only and b.strict:
             return False
@@ -113,7 +117,7 @@ class TemplateSpec:
 def generator(name: str, *, family: str, weight: int = 1, rank: int = 50, context: Context = Context.JAVASCRIPT,
               inputs: Sequence[Type] = (), required: Sequence[Type] = (), produces: Type | None = None,
               toggle: str | None = None, sloppy_only: bool = False, source: str = "",
-              scaffolds: bool = False, block: bool = False):
+              scaffolds: bool = False, block: bool = False, syntax: str | None = None):
     """Register a generator strategy. The decorated object is an `st.composite` function
     `(b, *inputs) -> strategy`; the wrapper stamps provenance on what it emits."""
     if family not in FAMILY_ORDER:
@@ -140,13 +144,19 @@ def generator(name: str, *, family: str, weight: int = 1, rank: int = 50, contex
 
         attributed.__name__ = name
         spec = GeneratorSpec(name, family, weight, rank, context, tuple(inputs), tuple(required), produces, toggle,
-                             sloppy_only, source, attributed, doc, scaffolds, block)
+                             sloppy_only, source, attributed, doc, scaffolds, block, syntax)
         REGISTRY[name] = spec
         attributed.spec = spec
         attributed.inner = strategy               # the generator function itself (for source listings)
         return attributed
 
     return decorate
+
+
+def syntax_ok(key: str) -> bool:
+    """Whether the probed Rhino parses the construct `key` names (a `syntax` key of the capability
+    table); generators consult it before drawing an optional form, e.g. a rest element."""
+    return key in SYNTAX_SUPPORTED
 
 
 def value_maker(t: Type):

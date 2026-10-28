@@ -9,7 +9,7 @@ __probe("step", n3, n2, n1);
 var o6 = new Int16Array(8);
 __probe("step", o6, n3, n2, n1);
 // [property_assignment]
-o6.length = n1;
+o6.toJSON = n1;
 __probe("step", o6, n3, n2, n1);
 // [int_array]
 let arr7 = [-1, 3221225471, -3];

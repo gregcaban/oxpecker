@@ -6,8 +6,8 @@ difference is a bug candidate, shrunk to a small reproducer. This document descr
 it exists in the repository; the original brief it grew from is `docs/brief-2026-10-18-original.md`.
 Where the two differ, this one wins.
 
-Status: 2026-10-19 (with `oxpecker fuzz`). Rhino pinned at `b95f75d` (master, `2.0.0-SNAPSHOT`); 33 confirmed findings
-in `tests/regressions/`.
+Status: 2026-10-28. Rhino 1.9.2 from Maven Central (switched from master `b95f75d`, where the findings were
+made); 31 reproducers in `tests/regressions/` show on 1.9.2, 8 more under `master-only/` only on master.
 
 ## 1. Goal and scope
 

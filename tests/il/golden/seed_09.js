@@ -35,7 +35,7 @@ Math[5] = n25;
 __probe("step", n26, n25, n24, n23, n22, n21);
 function f28(p29, p30, p31, p32) {
     p32 ||= Symbol;
-    var f35 = Proxy;
+    var f35 = RangeError;
     var n37 = 0;
     return 65535;
 }
