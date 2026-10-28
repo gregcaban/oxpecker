@@ -2,7 +2,7 @@
 
 What oxpecker has found in Rhino `b95f75d` so far, one entry per root cause, with the program
 that shows it, what each mode does, which mode is right, and what we know about why. Written
-2026-10-27 from `tests/regressions/` (38 reproducers), `tests/seeds/` (2), the unsorted
+2026-10-27 from `tests/regressions/` (39 reproducers), `tests/seeds/` (2), the unsorted
 `tests/findings/` (3 reduced files, 5 hard + 1 soft + 18 java-types records) and the two scratch
 checks described in §6. Upstream status (issues, test262 expectations) is in
 `docs/upstream-crosscheck.md`; this document does not repeat it beyond a pointer per family.
@@ -46,7 +46,7 @@ difference). §5.7 has the example.
 
 ## 2. The map
 
-Forty entries (38 reproducers, two of them symptoms of one cause, plus the two seeds,
+Forty-one entries (39 reproducers, two of them symptoms of one cause, plus the two seeds,
 the continuation difference and the soft record), grouped by the part of Rhino that is wrong.
 "Right" names the mode that follows the spec; "both wrong" means neither does.
 
@@ -61,6 +61,7 @@ the continuation difference and the soft record), grouped by the part of Rhino t
 | 5.5 Java exceptions escaping both modes | 13 reproducers, from `Array.find()` to `new Int8Array({length: 2**53})` | neither |
 | 5.6 Expected differences | continuations | by design |
 | 5.7 Soft | Symbol comparison message | neither |
+| 5.8 Compiled `super` in a block with `let`/`const` | `ClassCastException` at the super reference | interpreted |
 
 ## 3. Compiled mode's integer typing
 
@@ -156,9 +157,11 @@ function local() { var b = 1024n; return b < 5; }      // same
 
 No numeric operator touches the variable; comparing a local or parameter with a number literal
 (`<`, `<=`, `>`, `>=`, either operand order, `5.5` too) is enough for the same
-`Cannot convert BigInt to a number`. `==`/`===`, a string literal, a non-literal operand
-(`v < five`), the top level, and a function with a `try/catch` (which forces an activation
-frame) all agree.
+`Cannot convert BigInt to a number`. The literal's side can also be a local the optimizer
+types as a number (`const n = 5; v < n`), and the BigInt side can be a captured top-level
+variable (`var top = 1024n; function f() { return top < 5; }`). `==`/`===`, a string literal,
+an untyped operand (`v < five` with `five` a parameter), the top level, and a function with a
+`try/catch` (which forces an activation frame) all agree.
 
 ### 3.5 One boxed `Double` per constant
 
@@ -463,6 +466,25 @@ Note that this reduction is a `hard` verdict, not `soft`, because the message wa
 a string value. A program that reports its own error messages turns every soft message
 difference into a hard one; worth remembering when reading a campaign's hard list.
 
+### 5.8 Compiled `super` inside a block that declares `let` or `const`
+
+`compiled-super-in-block-with-lexical-declaration-classcast.js`
+
+```js
+var w = { m() { { super.a = 1; const n = 0.1; return this.a; } } };
+w.m();   // interpreted 1, compiled ClassCastException: LocalScope cannot be cast to NativeCall
+```
+
+An object-literal method that refers to `super` (write, read or method call) inside a block
+that also declares a `let` or `const` crashes in compiled mode at the super reference, with a
+raw Java `ClassCastException` that no JS `catch` sees. The two parts must share the block:
+`var` instead of `let`/`const`, the declaration in a sibling block, the super reference outside
+the block, and the same body without the block all agree. Class methods agree in both modes.
+Strict mode and nesting the method in a function make no difference. The cast names the
+mechanism: the compiled super lookup walks to the enclosing activation and expects a
+`NativeCall`, but a block with lexical declarations puts a `LocalScope` in front of it. Found
+by `oxpecker fuzz` on 2026-10-28; the interpreter is right.
+
 ## 6. Where the findings came from, and what is left unsorted
 
 | source | findings |
@@ -477,6 +499,7 @@ difference into a hard one; worth remembering when reading a campaign's hard lis
 | `oxpecker fuzz`, 2026-10-19 | 3.4, 3.5, 5.5 `toSource` |
 | completion-rate test of the generation layer | 5.5 `TypedArray.set` |
 | `oxpecker fuzz`, 2026-10-26 and 27 campaigns | 3.3 second form, 3.4 second form, 5.1 write-back and receiver |
+| `oxpecker fuzz`, 2026-10-28 campaign | 5.8, the wider triggers of 3.4's second form |
 
 Everything still under `tests/findings/` maps to a family above:
 
