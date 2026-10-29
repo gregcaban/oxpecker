@@ -4,7 +4,8 @@ A reader's guide to the code, written 2026-10-26 after design §11 steps 1–4. 
 (`docs/design-generation-layer.md`) says what the layer should be and why; the decision log
 (`docs/generation-layer-decisions.md`, G1–G32) says what was settled; this document says what
 is there, how the pieces fit, how to drive each one from a Python shell, how to add a generator,
-and what the tests guard. Status and next steps are in `docs/handoff-2026-10-26.md`.
+and what the tests guard. What the campaigns measured and what is still open is in the
+design, Part III.
 
 ## 1. The pipeline in one picture
 
@@ -391,24 +392,94 @@ model tests need the built harness and are skipped without it).
 
 ## 7. Things that are easy to get wrong
 
-The full list with the reasons is in `docs/handoff-2026-10-26.md` ("Gotchas from implementing
-oxpecker/il"). The short version: never `.example()` a builder strategy; `.map` on a bare draw
-needs a build context; Java types are observable through `__probe` (`traceJavaTypes`,
-`"String | Double | Integer"`, label first), not through `J.typeOf`; Rhino `b95f75d` has no `d`
-regexp flag and rejects `"use strict"` under a rest parameter; the lint reads every string.
+Hypothesis seams (6.170.5, verified in its source):
+- `strategy.example()` runs a strategy several times and caches; a strategy that mutates a
+  `Builder` emits into it repeatedly and corrupts it. Use `strategies.draw(strategy, seed)`
+  (one `ConjectureData` + `BuildContext(data, wrapped_test=lambda: None)`) or `generate(seed)`.
+  Tests are written against those; `NonInteractiveExampleWarning` is treated as an error.
+- `.map`/`.filter` on a strategy drawn outside a `@given` test need a build context; `maybe(p)`
+  is therefore `sampled_from` of a fixed bool list (and shrinks to `False`).
+- `@st.composite` on a function that never calls `draw` is a deprecation warning (an error in
+  the suite): helpers that only build IL are plain functions taking the builder.
+- `hypothesis.note()` outside a test raises `InvalidArgument`; the Rhino parse helper guards it.
+- 40 examples of `st.integers(0, 4)` do not cover every value (boundary bias). "Some draws must
+  emit X" expectations in `test_generators.py` list only the common shapes.
+- Hypothesis sometimes answers a draw with a constant scraped from the source of any loaded
+  module; seeded draws go through `strategies.SeededProvider` so a seed means the same program
+  in the shell, the CLI and the tests (G43). The symptom was a golden test failing only after
+  `test_cli.py` or `test_fuzz.py` had run.
+- The engine skips shrinking an example it finds under a test's *primary* database key (the
+  "reused previously shrunk" fast path); a failure to be shrunk goes under the `.secondary`
+  sub-key, as `fuzz_one_input` does. `fuzz.Shrinker` learned this the hard way (one shrink
+  call, the same program back). The engine saves every improving shrink to the database as it
+  goes, so a shrink stopped from outside leaves its best result behind; the engine catches only
+  `Exception`, so a `BaseException` from the test body is how the loop leaves it after a budget.
+- On a misaligned replay only the one draw gets the index-0 value; later draws keep their
+  positions. A one-element `sampled_from` records nothing, so a pool that shrinks below a
+  replayed index shifts every later choice; `pick` records a choice for a one-element pool for
+  that reason, and the most recent variable sits at index 0 so a misaligned pick is benign.
+- `BUFFER_SIZE = 8*1024` caps serialised choices per test case; `@seed` disables database writes.
+- `evolved(parent=)` must not draw anything for the parent, and the choices `extend` stores must
+  be byte-for-byte what a full replay consumes (`test_fuzz.py` checks it for twelve seeds). The
+  "one more?" flag is supplied as a one-element prefix to the fresh `ConjectureData`, so the
+  strategy needs no first-iteration special case.
 
-### Findings so far, and the tools around them
+FuzzIL rules the builder enforces (the structure tests hit them first):
+- Values used by an object literal or a switch must be loaded before the literal or switch
+  opens: `LoadInteger` needs `Context.JAVASCRIPT`, not `OBJECT_LITERAL`/`SWITCH_BLOCK`. Draw
+  the value, then open the block.
+- The output of `BeginCodeString` is visible inside the code string (it is the string); the
+  lifter declares its name before lifting the inner program, so inner references resolve.
+- Function begins are constructed with keyword arguments (`param_types` sits after
+  `parameters`); `Operation.name` is a property, so no operation may have a `name` field.
+- Loop labels for `break`/`continue` must name loops (a `verify` failure the completion test
+  caught).
 
-`oxpecker shrink FILE` reduces a recorded reproducer at statement level while its coarse
-signature holds (G40); the loop does the same after Hypothesis's shrink. `tests/regressions/`
-holds what the first campaigns found: `super-logical-assign-proto-writeback-interpreted.js`
-(the interpreter writes the read value back on `super.__proto__ ||= v`), `compiled-top-level-
-multiply-by-zero-loses-sign.js` (`x * 0` is +0 at script level in the compiled mode),
-`super-compound-assign-wrong-receiver-interpreted.js` (the interpreter reads a super property
-with the wrong receiver on a compound assignment) and
-`typed-array-set-no-args-aioobe-both-modes.js` (an engine crash). Expected mode differences
-(continuations are interpreter-only) are listed in `tests/known_signatures.txt` and logged, not
-shrunk; a program both modes report as unsupported is skipped (`compare.py`).
+Harness observation points:
+- `J.typeOf(x)` is not where Integer-vs-Double shows: Rhino converts a number argument to a
+  Java `Object` parameter to `Double` in every mode. `__probe(...)` records the raw class per
+  argument in `Outcome.traceJavaTypes` as `"String | Double | Integer"` (the label first).
+- `Outcome.value` prints Java objects opaquely (`[Java java.lang.String]`); wrap a Java-returned
+  string in `String(...)` if the script's completion value must show it. `JavaProbe.toString`
+  is a fixed string and `canon_identity` masks identity hashes (also on array descriptors and
+  with text glued on), because a printed hash differs between the modes' wrappers.
+- An engine exception past JS try/catch (`status == "crash"`, `engineException`) is a Rhino
+  finding in both modes; the completion test prints it with its seed rather than failing.
+- The compiled mode's refusal of `new Continuation()` is reported as
+  `unsupported(continuations)` (G42), a known signature; a program both modes report as
+  unsupported is skipped.
+- Rebuild the jar after any Java change (`cd harness-java && ./gradlew fatJar`), never while
+  harness runs are in progress (a JVM loading classes lazily from a replaced jar fails oddly).
+  Coverage needs `OXPECKER_COVERAGE=1` (the client sets it) and `jacocoagent.jar` next to it.
+  A re-run reaches 87 % of a run's new probes; 13 % are once-per-JVM.
+
+Rhino facts the oracle tests found (master `b95f75d`; 1.9.2 agrees unless noted):
+- No `d` (hasIndices) and no `v` regexp flags.
+- `"use strict"` inside a function with a rest, default or destructuring parameter is a
+  SyntaxError (`verify` rule "strict"; `strict_function` draws simple parameters).
+- `function () {}` is accepted as a statement (an anonymous function declaration node rejects).
+- In an optimizer-run function `p + 1` with a parameter `p` is boxed as `Double` (Codegen's
+  `add(Object, double)`); the activation copy keeps `Integer` (G32, not yet in `expr_type`).
+- 1.9.2 has no `new.target` and no rest parameters in arrows and patterns (gated by `syntax`
+  keys); its capability-probe quirks are in design §26.
+
+Repo conventions that bite:
+- The lint (`tests/il/test_lint.py`) scans every string constant in `strategies.py`,
+  `templates.py` and `generators/`, skipping docstrings, `load_string(...)` arguments,
+  `__repr__`/`__str__` bodies and `raise` messages. Error messages elsewhere must not contain
+  JavaScript tokens; property names come from `Keys.*` (`Keys.A.name` when a string is needed).
+- Generator pools are ordered by family, then `rank`, then name; a value maker that should be
+  first in a fallback (integer) carries `rank=0`.
+- `GeneratorSpec` fields are positional in places; a new field goes last.
+- In zsh `echo ====` and an unquoted `--include=*.java` fail (`=` expansion, globbing).
+
+### Findings, and the tools around them
+
+Every reproducer the loop found is a file under `tests/regressions/` and an entry in
+`docs/findings-explained.md`. `oxpecker shrink FILE` reduces a reproducer at statement level
+while its coarse signature holds (G40); the loop does the same after Hypothesis's shrink.
+Expected mode differences (continuations are interpreter-only) are listed in
+`tests/known_signatures.txt` and logged, not shrunk.
 
 ### `oxpecker/inspector.py` — the export for the UI
 
@@ -423,10 +494,8 @@ prints the quality table.
 
 ## 8. Not there yet
 
-The loop's next design steps, with the measurements behind them, are in
-`docs/il-refactor-followup-work.md` (cache the parent lineage on extension, rebase at the step
-cap, `combine`'s share of the corpus, rejection statistics, compaction as a separate pass).
-
-Splice donors from the corpus were decided against (G44);
-the model's "mixed" expression type (G32); the remaining Fuzzilli translations listed in the
-handoff; the runtime-assisted mutators and Fuzzilli's minimizer are not ported by design (G24).
+What the campaigns measured and what is still open is in the design, Part III
+(`docs/design-generation-layer.md` §26–§27): the lineage cache, signatures, the source
+shrinker, `number_flip`, rebasing and compaction, the remaining completion items. Splice donors
+from the corpus were decided against (G44); the runtime-assisted mutators and Fuzzilli's
+minimizer are not ported by design (G24).

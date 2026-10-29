@@ -1,6 +1,6 @@
 """Generators, value makers, templates and programs as Hypothesis strategies.
 
-The rules of docs/proposal-hypothesis-ir.md §3.8 live here, not in generator code: `st.lists` for
+The strategy rules of docs/design-generation-layer.md §7.5 live here, not in generator code: `st.lists` for
 every repetition, `pick` for every context-dependent pool, fixed pools (one for all statement
 contexts, one for object-literal members, one for switch cases) with weights as repetition, a
 context-independent fallback, visible variables most recent first, `maybe()` shrinking to False,

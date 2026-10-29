@@ -4,11 +4,10 @@ Status: design, 2026-10-26, for review before any code is written. Part I (§1�
 architecture and the reasons; Part II (§13–§25) is the implementation: module by module, the
 interfaces, the algorithms, the translation recipe for Fuzzilli's generators, worked examples,
 and the brief a delegated implementer gets. Supersedes the generator
-sections of `docs/design.md`, the IR parts of `docs/proposal-hypothesis-ir.md` (§3.1–3.4) and the
-decision log `docs/ir-implementation-decisions.md`, which record the deleted layer. The brief it
-answers is `docs/what_went_wrong_with_ir_generators.md` (part 2, the specification; part 3, the
-guards). Decisions made here are logged in `docs/generation-layer-decisions.md` (G1–G24) and
-every later change goes there first.
+sections of `docs/design.md` and the proposal, review and decision log (D1–D36) of the earlier
+IR, deleted in `796b11a`; §0 says why. Decisions made here are logged in
+`docs/generation-layer-decisions.md` and every later change goes there first. Part III (§26–§27)
+records what the campaigns measured and what is still open.
 
 Sources read for this design: Fuzzilli at commit `be2811d00282320381fc8007d64873745772011d`
 (`~/Dev/Compilers/fuzzilli`): `Sources/Fuzzilli/FuzzIL/{JsOperations,Instruction,Variable,Program,
@@ -25,6 +24,44 @@ Line references below are to those files at those commits.
 
 ---
 
+## 0. Why this layer replaced the text generators
+
+The first generation layer (`oxpecker/gen/`, then an IR in `oxpecker/ir/` ported from it) was
+deleted on 2026-10-26 in `796b11a`. Measured the day before by drawing every generator alone
+25 times, 105 of 133 generators emitted JavaScript text: an `Eval` operation (code with input
+placeholders) meant for "constructs not modelled yet" that became the default; "literals" that
+were expressions (`"1/3"`, `"new Map()"`, `"function (x) { return x; }"`); code-like strings as
+branch labels (`"|0"`, `"e instanceof TypeError"`); bare strings for operators, keywords and
+builtins. The IR carried the skeleton of programs while the leaves were blobs no mutator could
+reach, no analysis could see and the shrinker could only keep or drop whole. Twelve hundred
+green tests said nothing about it: they checked that programs parse and run, not how much of
+each program is structure. The process lesson is as important as the technical one: a port
+from string code can only produce strings, delegated work had an escape hatch and was accepted
+on its test results without being read.
+
+What follows from that, and holds everywhere in `oxpecker/il/`:
+
+- **No JavaScript in the generation layer.** No text-carrying operation exists; the lifter is
+  the only place JavaScript is spelled. Closed vocabularies are enums (§3.4), open ones are
+  typed registries built from the capability probe (§4), literals hold values with a typed
+  spelling (§3.5), generators draw the data they build rather than a label for it (§7.5), and
+  values are built from operations rather than spelled (§7.4).
+- **Every construct is an operation** (§3.3: FuzzIL's inventory restricted to what Rhino
+  parses), decided up front. A missing construct is a design task, never a string.
+- **Guards keep it that way** (§10): a lint over the generator sources fails on any string
+  constant containing a JavaScript token, a structure test per generator checks the operations
+  it emits, and the text share per generator is a standing measurement that must read zero.
+- **Generators follow Fuzzilli's code, translated** (§7.6), with its attribution in every
+  file; the deleted generators serve only as a description of program shapes.
+
+Three design points came out of the review of the earlier proposal and are carried here: the
+IL is not strict SSA, because Rhino's optimizer specialises mutable locals by the sequence of
+types assigned to them, so declared variables, `Reassign` and `Update` exist (§3.2); the lifter
+is part of the test case, so its inlining never reorders effects and its choices are recorded
+in the program (§3.6, §8.1); and shrinking every corpus insert with Hypothesis costs more than
+the fuzzing it protects (38 hours of shrinking for 40 minutes of fuzzing, extrapolated from the
+2026-10-19 corpus), so only findings are shrunk (§9, G45).
+
 ## 1. What the layer must do
 
 1. **Produce programs as structure.** The one rule from the brief: the generation layer contains
@@ -38,7 +75,7 @@ Line references below are to those files at those commits.
    `new.target`, optional chaining, `??`, `**`, logical assignment, BigInt, `with`, labels.
 3. **Be written as Hypothesis strategies.** Generators, value makers, templates, mutators and
    lineages are `@st.composite` functions; every choice is an explicit `draw`; the shrinker is the
-   only minimiser; the strategy rules of the proposal (§3.8) are built into the shared plumbing.
+   only minimiser; the strategy rules of the earlier proposal (§7.5) are built into the shared plumbing.
 4. **Reach Rhino's compiled-mode paths on purpose.** Rhino's optimizer specialises mutable
    function locals by the types assigned to them, only in functions without an activation, and
    links direct calls to top-level functions. The IL models storage and reassignment; the analysis
@@ -601,7 +638,7 @@ literal with drawn members.
 
 ### 7.5 Rules applied
 
-The proposal's §3.8 rules are in the plumbing, not in generator code (D22 kept): `st.lists` for
+The strategy rules of the earlier proposal are in the plumbing, not in generator code (D22 kept): `st.lists` for
 every repetition; `pick` for every context-dependent pool; fixed pools simplest-first (the family
 order: values, operations, properties, containers, calls, control, compiler-targeted, java,
 continuations, exotic, api); visible variables most-recent-first; `maybe()` shrinks to `False`;
@@ -1394,3 +1431,104 @@ def numeric_local_type_flip(draw, b: Builder) -> Var:
 Its structure test asserts, over fifty draws: `BeginPlainFunction`, at least one `Declare`, at
 least one assignment whose `rhino.expr_type` is `NUMBER`, a `Return`, a `CallFunction` inside a
 `BeginTry`; and in at least 70 % of draws a `Reassign` whose RHS type is not a number.
+
+
+---
+---
+
+# Part III — What the campaigns measured
+
+## 26. Measurements
+
+From the campaigns of 2026-10-26 to 2026-10-28 (`oxpecker fuzz`, default options, ten minutes
+to an hour each; the hour-long ones are tabulated with their findings in
+`docs/findings-explained.md` §7). Times are from one laptop and are relative, not benchmarks.
+
+**Where the time goes** (per run; the median corpus entry has 277 choices and 80 instructions):
+
+| stage | time |
+|---|---|
+| fresh lineage (generate, verify, lift choices) | 97 ms |
+| replay an entry from its choices | 250 ms |
+| extend an entry through the cached parent (G48) | 92 ms |
+| one mutation step alone (analysis, mutator, verify, lift) | 30–40 ms |
+| lift to JavaScript | 17 ms |
+| Rhino, both modes, with coverage | 201 ms |
+
+Generation plus mutation cost as much as Rhino per run. Extension used to replay the whole
+lineage (base plus every step, linear in depth); since G48 it continues the cached parent and
+draws only the new steps, and the stored choice sequence is unchanged (the parent's choices,
+the `True` stop flag, the new draws), so replay and shrinking are unaffected. `fuzz.LineageCache`
+holds 512 lineages; an hour's corpus is nine times that, 56–61 % of extensions fell back to
+replay in every hour-long campaign, and the run rate halved (2.0 runs/s against 3.9–5.5 in
+short campaigns).
+
+**Lineage depth.** A total step cap made entries at the cap dead ends (221 of 1 716 extension
+attempts in a ten-minute campaign). G49 made `steps` a per-round cap with `max_depth` (20) the
+only ceiling; 15 of 4 928 entries reached it in an hour, so rebasing a lineage onto its final
+program (which would take the base out of the shrinkable choice sequence) is not worth doing
+yet. Entries use at most 2 317 of the 8 192 serialised bytes Hypothesis allows per test case
+(median about 550; a step adds 250–400), so the budget is not the constraint; shrink time grows
+with the sequence length.
+
+**Mutators.** Drawn uniformly, `combine` produced 27 % of corpus steps (it appends a whole fresh
+program and reaches new probes almost by construction) and dragged entries past 300
+instructions; with G50's weights (`combine` 1, `codegen` 2, the rest 3) it is 7 %. Steps
+rejected by `verify` run at 19–22 % overall (bound 35 %), nearly all of them `number_flip`,
+which needs a number variable in scope and rejects about 85 % of its attempts. `last-run.json`
+carries attempted, rejected and corpus steps per mutator (G51).
+
+**Compaction.** Shrinking each new corpus entry while it still reached its probes
+(`--compact-budget 30`) made an hour-long campaign twenty times slower for less coverage,
+because early in a campaign nearly every run adds an entry (G45). If a small corpus is ever
+wanted, compact as a separate pass over an existing corpus.
+
+**Shrinking findings.** The lineage shrinker (Hypothesis over the choice sequence, 150 harness
+runs) did not fire at all before 2026-10-28: the loop added a finding's signature to the known
+set and then shrank with "hard and not known", so the replay was uninteresting and the engine
+stopped after one run. Each finding is now shrunk towards its own coarse signature. Measured
+with the fix: a continuation finding 78 → 16 instructions (77 → 5 lines) in 7 s, a `-0`
+finding 63 → 35 (57 → 14 lines) in 8 s, and in the hour-long 1.9.2 campaign 171 → 55,
+118 → 74 and 126 → 85 instructions. A finding whose probe prints the object under mutation
+barely shrinks (84 → 83): every deletion changes the printed value, so Hypothesis falls back to
+minimising choice values. The statement-level source pass (G40) is the complement for those
+(73 → 17 lines on that one). A larger budget (600) did not help; after the budget the lineage
+test raises a `BaseException` so the engine stops instead of building candidates that never
+run. Hypothesis's shrinker does the structural work; no instruction-level minimiser is needed.
+
+**Signatures.** Exact signatures are too fine when the probe prints an object (every prototype
+shape is a new signature for one bug; the super-property family was written as a new
+reproducer in every campaign) and too coarse when only the status differs (the relop bug hid
+for a day under `ok vs throw`, which a recorded bug shares). Reading the first program per
+signature in `hard.jsonl` after each campaign is what finds bugs; `oxpecker shrink` on it is
+the triage step.
+
+**Rhino 1.9.2** (the release the harness runs since 2026-10-28) has two quirks the capability
+probe works around: `Array.prototype` keeps its unscopables under the empty property name as a
+lazily loaded slot whose descriptor exposes the raw loader until the property is read once, and
+`With.prototype` rejects `Object.getOwnPropertyNames`. It has no `new.target` and no rest
+parameters in arrows and patterns; generators declare the `syntax` key they need and the
+registry drops them when the probed table says unsupported.
+
+## 27. Open items
+
+- Size `fuzz.LineageCache` to the corpus (or bound it by bytes) and measure the run rate before
+  and after. The largest known win.
+- Finding signatures: a status-only signature should carry the thrown error's name and message;
+  a value diff that prints an object should not depend on the prototype's name.
+- Source-level shrinking only deletes whole statements. Add unwrapping (a loop or block to its
+  body, a function to its body called once), replacing an unbound name by a literal, and
+  dropping unused declarations; and never delete a declaration a surviving `__probe` still
+  names, which turns the finding into a `ReferenceError` difference.
+- `number_flip` is rarely applicable; a variant that first inserts a number-variable function
+  and then flips would reach the number-typed-local bug shape by mutation.
+- A lower weight for `super_property_update`, which finds the same family in every campaign
+  because `__proto__` is the one accessor every object has.
+- Rebasing at `max_depth`, only once campaigns show entries reaching it in numbers; compaction
+  as a separate command; splice donors from the corpus (decided against in G44, revisit with
+  rebasing).
+- Completion rate: the `calls` family (about 75 %) is the remaining item; the `operations`
+  family's throws are correct TypeErrors (BigInt mixed with Number or Symbol), held to about
+  15 % of draws by `operand()` (G46).
+- The model's MIXED expression type for an AnyType local with a number operand (G32); splice's
+  inner-output remap and "may mutate" inclusion (G33).

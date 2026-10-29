@@ -3,8 +3,7 @@
 Differential testing of Mozilla Rhino: every JavaScript program is run in Rhino's **interpreted**
 mode and its **compiled** (JVM bytecode) mode, the observable results are canonicalised, and any
 difference is a bug candidate, shrunk to a small reproducer. This document describes the system as
-it exists in the repository; the original brief it grew from is `docs/brief-2026-10-18-original.md`.
-Where the two differ, this one wins.
+it exists in the repository, not the brief it grew from (§2 lists where the two parted).
 
 Status: 2026-10-28. Rhino 1.9.2 from Maven Central (switched from master `b95f75d`, where the findings were
 made); 33 reproducers in `tests/regressions/` show on 1.9.2, 7 more under `master-only/` only on master.
@@ -448,3 +447,4 @@ What each part of the design borrows from:
 - The injected-bug validation from the brief (§5.8-5), as a scratch patch to `DoubleLinker`.
 - Automated UI tests; `pytest-xdist` with one JVM per worker if throughput matters.
 - File the findings upstream (mozilla/rhino) with the reproducers.
+- The generation layer and the loop keep their own list: `docs/design-generation-layer.md` §27.
