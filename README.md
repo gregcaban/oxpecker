@@ -9,20 +9,18 @@ came out, and treats any difference as a bug candidate. The
 
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, system-ui, sans-serif", "fontSize": "14px", "lineColor": "#64748b", "edgeLabelBackground": "#ffffff", "clusterBkg": "#f8fafc", "clusterBorder": "#94a3b8"}}}%%
-flowchart TB
+flowchart LR
     subgraph py["Python"]
-        direction LR
         G["generate or mutate<br/>Hypothesis strategies over the IL"] --> L["lift<br/>IL to JavaScript"] --> C["harness client"]
-        C ~~~ V["compare<br/>equal · java-types · soft · hard"] --> K["corpus + findings<br/>new coverage kept, bugs shrunk"]
+        V["compare<br/>equal · java-types · soft · hard"] --> K["corpus + findings<br/>new coverage kept, bugs shrunk"]
         K -. next round .-> G
     end
     subgraph jvm["Java harness, one JVM with Rhino embedded"]
-        direction LR
         H["fresh scope<br/>per case and mode"] --> I["interpreted"] --> N["canonicalise<br/>values, probes, errors"]
         H --> O["compiled"] --> N
     end
-    py -- "source" --> jvm
-    jvm -- "outcomes, coverage" --> py
+    C -- "source" --> H
+    N -- "outcomes, coverage" --> V
     classDef gen fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
     classDef rhino fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef out fill:#dcfce7,stroke:#16a34a,color:#14532d
