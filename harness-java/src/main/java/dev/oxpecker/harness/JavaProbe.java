@@ -145,4 +145,9 @@ public final class JavaProbe {
     public static final double PI_ISH = 3.0;
     public static int staticCounter = 0;
     public static int bump() { return ++staticCounter; }
+
+    /** Fixed text: Object's default toString carries an identity hash, which differs between
+     *  the two modes' wrappers and would make every `J + ""` a divergence. */
+    @Override
+    public String toString() { return "dev.oxpecker.harness.JavaProbe"; }
 }

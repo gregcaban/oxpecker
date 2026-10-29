@@ -44,3 +44,10 @@ def test_java_trace_identity_hashes_are_canonicalised_too():
     a = Outcome(mode="interpreted", status="ok", javaTrace=['typeOf("dev.oxpecker.harness.JavaProbe@ef2de") -> "String"'])
     b = Outcome(mode="compiled", status="ok", javaTrace=['typeOf("dev.oxpecker.harness.JavaProbe@a7df") -> "String"'])
     assert compare(a, b).kind == EQUAL
+
+
+def test_array_hashes_and_concatenated_text_are_masked():
+    # `J.intArray(0) + ""` prints the JVM array descriptor; `J + "x"` glues text onto the hash.
+    assert canon_identity('"[I@6e6b878"') == '"[I@"'
+    assert canon_identity("[[Ljava.lang.String;@1a2b") == "[[Ljava.lang.String;@"
+    assert canon_identity("dev.oxpecker.harness.JavaProbe@13bc3ddcx") == "dev.oxpecker.harness.JavaProbe@x"

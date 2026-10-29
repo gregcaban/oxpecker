@@ -2,7 +2,7 @@
 
 What oxpecker has found in Rhino `b95f75d` so far, one entry per root cause, with the program
 that shows it, what each mode does, which mode is right, and what we know about why. Written
-2026-10-27 from `tests/regressions/` (40 reproducers, 7 of them under `master-only/` because they
+2026-10-27 from `tests/regressions/` (41 reproducers, 7 of them under `master-only/` because they
 do not show on the 1.9.2 release the harness runs since 2026-10-28), `tests/seeds/` (2), the unsorted
 `tests/findings/` (3 reduced files, 5 hard + 1 soft + 18 java-types records) and the two scratch
 checks described in §6. Upstream status (issues, test262 expectations) is in
@@ -47,7 +47,7 @@ difference). §5.7 has the example.
 
 ## 2. The map
 
-Forty-two entries (40 reproducers, two of them symptoms of one cause, plus the two seeds,
+Forty-three entries (41 reproducers, two of them symptoms of one cause, plus the two seeds,
 the continuation difference and the soft record), grouped by the part of Rhino that is wrong.
 "Right" names the mode that follows the spec; "both wrong" means neither does.
 
@@ -63,6 +63,7 @@ the continuation difference and the soft record), grouped by the part of Rhino t
 | 5.6 Expected differences | continuations | by design |
 | 5.7 Soft | Symbol comparison message | neither |
 | 5.8 Compiled `super` in a block with `let`/`const` | `ClassCastException` at the super reference | interpreted |
+| 5.9 Compiled `with` over a Java object | `ClassCastException` at the first name read in the block | interpreted |
 
 ## 3. Compiled mode's integer typing
 
@@ -325,7 +326,11 @@ typed array as the prototype, `super.length += 1` therefore runs interpreted and
 object instead of `this` to the getter. The form found on master on 2026-10-27, `super.__proto__
 /= 10` with a `Date` prototype (interpreted `TypeError` from converting `Date.prototype` to a
 number), does not show on 1.9.2; the getter and typed-array forms came from the first 1.9.2
-campaign on 2026-10-28.
+campaign on 2026-10-28. The hour-long 1.9.2 campaign the same day added a form where the wrong
+receiver shows as a missing error: with an array prototype whose `toString` is not callable,
+`super.__proto__ **= 3` compiled reads the array through the instance and ToPrimitive throws
+`TypeError` (correct), while the interpreter reads `Array.prototype` through the prototype and
+converts it quietly.
 
 ### 5.2 Interpreter frames and argument arrays
 
@@ -490,6 +495,27 @@ mechanism: the compiled super lookup walks to the enclosing activation and expec
 `NativeCall`, but a block with lexical declarations puts a `LocalScope` in front of it. Found
 by `oxpecker fuzz` on 2026-10-28; the interpreter is right.
 
+### 5.9 Compiled `with` over a Java object
+
+`compiled-with-java-object-name-lookup-classcast.js`
+
+```js
+with (J) { __probe("step", typeof sum, Math.abs(-1)); }
+// interpreted "function" | 1, compiled ClassCastException: NativeJavaObject cannot be cast to ScriptableObject
+```
+
+A `with` statement whose object is a LiveConnect wrapper (the harness's `J`, a Java array from
+`J.intArray(2)`, a Java string a Java method returned) crashes compiled code at the first
+unqualified name read inside the block, whatever the name resolves to: a member of the Java
+object, a global, a `const` of the script. The stack names the mechanism: compiled code links
+name reads through `ConstAwareLinker`, which looks for a frozen `const` it can fold; given a
+`NativeWith` it steps to the with-object and casts it to `ScriptableObject`, which
+`NativeJavaObject` and `NativeJavaArray` are not (they implement `Scriptable` directly).
+`typeof name`, writes and calls take other paths and agree; an empty block agrees. Found by
+`oxpecker fuzz` on 1.9.2 (hour-long campaign, 2026-10-28), shrunk by the loop itself from a
+45-line program to `with (J) { v36 in Math; }`; the interpreter is right. Not checked on master
+`b95f75d`.
+
 ## 6. Where the findings came from, and what is left unsorted
 
 | source | findings |
@@ -505,7 +531,7 @@ by `oxpecker fuzz` on 2026-10-28; the interpreter is right.
 | completion-rate test of the generation layer | 5.5 `TypedArray.set` |
 | `oxpecker fuzz`, 2026-10-26 and 27 campaigns | 3.3 second form, 3.4 second form, 5.1 write-back and receiver |
 | `oxpecker fuzz`, 2026-10-28 campaign | 5.8, the wider triggers of 3.4's second form |
-| `oxpecker fuzz` on 1.9.2, 2026-10-28 | 5.3 last row |
+| `oxpecker fuzz` on 1.9.2, 2026-10-28 | 5.3 last row; hour-long campaign: 5.9, the ToPrimitive form of 5.1's receiver bug |
 
 Everything still under `tests/findings/` maps to a family above:
 

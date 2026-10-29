@@ -78,13 +78,16 @@ def _thrown_sig(o: Outcome) -> tuple[str | None, str | None]:
     return (o.thrown.get("name"), o.thrown.get("value"))
 
 
-_IDENTITY_HASH = re.compile(r"((?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*)@[0-9a-f]{1,8}\b")
+# A dotted class name (`java.lang.Object`) or a JVM array descriptor (`[I`, `[[D`, `[Ljava.lang.String;`)
+# followed by `@` and up to eight hex digits. No word boundary after the hash: the script may
+# concatenate text straight onto it (`J.intArray(0) + "x"`), and the hash's length varies.
+_IDENTITY_HASH = re.compile(r"((?:(?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*|\[+(?:[ZBCSIJFD]|L[\w.$]+;))@)[0-9a-f]{1,8}")
 
 
 def canon_identity(s: str | None) -> str | None:
-    """`dev.oxpecker.harness.JavaProbe@3bde59e5` -> `...JavaProbe@`: a Java object's default
-    `toString` carries its identity hash, which differs between any two runs."""
-    return None if s is None else _IDENTITY_HASH.sub(r"\1@", s)
+    """`dev.oxpecker.harness.JavaProbe@3bde59e5` -> `...JavaProbe@`, `[I@6e6b878` -> `[I@`: a Java
+    object's default `toString` carries its identity hash, which differs between any two runs."""
+    return None if s is None else _IDENTITY_HASH.sub(r"\1", s)
 
 
 def compare(a: Outcome, b: Outcome, *, strict_java_types: bool = False, strict_messages: bool = False) -> Verdict:
