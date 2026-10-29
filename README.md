@@ -1,5 +1,7 @@
 # oxpecker
 
+[![CI](https://github.com/gregcaban/oxpecker/actions/workflows/ci.yml/badge.svg)](https://github.com/gregcaban/oxpecker/actions/workflows/ci.yml)
+
 Differential testing of [Mozilla Rhino](https://github.com/mozilla/rhino). Rhino runs JavaScript
 two ways: an **interpreter**, and a **compiler** that emits JVM bytecode. The two should agree on
 every program. oxpecker generates programs, runs each one both ways in one JVM, canonicalises what
