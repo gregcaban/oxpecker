@@ -567,3 +567,45 @@ In rough order of how clear-cut the report is:
 The Java-type split (§3.6) and the boxed `Double` identity (§3.5) are embedder-facing and
 upstream has called the former by design; they are worth a note on #350 rather than new
 issues.
+
+## 7. The hour-long campaigns
+
+Three hour-long `oxpecker fuzz` campaigns so far, same settings (five mutation steps per round,
+`--p-new 0.2`, shrink budget 150 runs), each from an empty corpus. The 1.9.2 campaign was the
+first with the lineage shrinker firing in the loop (it had been silenced by a known-signature
+check that ran before the shrink; fixed the same day).
+
+| | 2026-10-27, master `b95f75d`, seed 11 | 2026-10-28, master, seed 12 | 2026-10-28, Rhino 1.9.2, seed 15 |
+|---|---|---|---|
+| runs (each in both modes) | 7 343 | 7 275 | 7 038 |
+| corpus entries | 4 517 | 4 227 | 4 928 |
+| probes covered / total | 18 081 / 46 447 | 14 717 / 45 562 | 14 138 / 42 935 |
+| hard verdicts (continuations) | 609 (582) | 426 (357) | 285 (258) |
+| lineage cache misses | 58 % | 56 % | 61 % |
+| reproducers written | 3 | 5 | 6 |
+| new root causes | 3.4 second form | 5.8 | 5.9 |
+| kept under | `runs/` (not kept) | `runs/fuzz-2026-10-28/` | `runs/fuzz-2026-10-28-r192-1h/` |
+
+What the reproducers were, per campaign, after triage with `oxpecker shrink` on each one and
+on the first program per coarse signature in `findings/hard.jsonl`:
+
+- **Seed 11 (master):** the relop bug (3.4 second form) hid under the known coarse signature
+  `ok vs throw`; the three reproducers written were the super write-back (5.1) under
+  value-dependent signatures.
+- **Seed 12 (master):** 5.8 written and shrunk by the loop; one `-0` lost (3.3) printing an
+  array; two super write-backs (5.1); one relop case whose probe referenced names the source
+  shrinker had deleted. The five coarse signatures all shrank to 3.3, 3.4 and 5.1.
+- **Seed 15 (1.9.2):** 5.9 written and shrunk by the loop (45 lines to three); two super
+  write-backs (5.1) under Object and Array prototype shapes; three harness artefacts, not Rhino
+  bugs: `J + 0` and `J + "x"` print the Java probe object's identity hash with text glued on,
+  which the comparator's mask (a word boundary after the hash) let through. `JavaProbe` now
+  prints a fixed string and the mask also covers array descriptors (`[I@…`) and glued text.
+  The coarse signatures: `true vs false` is 3.3 under `Object.is`; `NegativeArraySizeException`
+  is the string-doubling crash of 5.5; `ok vs throw` is 5.1's wrong receiver in a form where it
+  shows as a missing `TypeError` (now in that regression).
+
+Two lessons that repeat: exact signatures are too fine when the probe prints an object (every
+prototype shape is a new signature for one bug) and too coarse when only the status differs
+(unrelated compiled-mode throws share one), so the first program per signature in `hard.jsonl`
+is what to read after a campaign; and a reproducer that prints a host object is a harness
+question before it is a Rhino one.
