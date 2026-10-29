@@ -20,3 +20,4 @@ tests/findings/
 .vscode/
 *.log
 *.result.json
+docs/local/

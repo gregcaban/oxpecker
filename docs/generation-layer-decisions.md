@@ -3,12 +3,13 @@
 Running log for `docs/design-generation-layer.md`. The design says what and why at length; this
 file is the index of choices, so they can be reviewed and changed deliberately. Newest last.
 Format: **G<n>. Decision.** Why. Alternatives rejected. A decision from the deleted layer that
-is kept on purpose names its old number (D<n>, `docs/ir-implementation-decisions.md`).
+is kept on purpose names its old number (D<n>; that log belongs to the deleted layer and is
+not in the repository).
 
 ## Scope and sources (2026-10-26)
 
 **G1. New package `oxpecker/il/`; nothing from `oxpecker/ir` restored by default.** The deleted
-layer's ideas listed in the post-mortem §2.9 are re-introduced one by one, each named here with
+layer's ideas listed in the post-mortem (design §0) are re-introduced one by one, each named here with
 its D number. Alternative rejected: restoring `ir/` and patching out `Eval` — the string habits
 were in the generators and the pools, not only in the op.
 
@@ -16,7 +17,7 @@ were in the generators and the pools, not only in the op.
 cites Swift line numbers; every translated file carries the Apache-2.0 header naming its source.
 
 **G3. The op inventory is decided up front from `JsOperations.swift` against the capability
-table**, not grown on demand (post-mortem §1.5 item 3). Dropped: classes, private members,
+table**, not grown on demand (design §0). Dropped: classes, private members,
 async, `using`, workers, modules, wasm, `Eval`, `Print/Explore/Probe/Fixup`, `Nop`, `CreateMap`,
 `BindFunction/BindMethod`, `BeginConstructor`. Added: `Declare`, `LoadBuiltin`, oxpecker's
 `Probe`, radix/style fields on number literals.
