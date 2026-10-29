@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build the harness and run the tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Build the harness jar (bundles Rhino from Maven Central)
+        working-directory: harness-java
+        run: ./gradlew --no-daemon fatJar
+
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install oxpecker
+        run: pip install -e '.[dev]'
+
+      - name: Run the tests
+        env:
+          OXPECKER_JAVA: ${{ env.JAVA_HOME }}/bin/java
+        run: pytest -q
+
+      - name: Keep the harness jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxpecker-harness
+          path: harness-java/build/libs/oxpecker-harness-all.jar
+          retention-days: 7
