@@ -1,0 +1,191 @@
+# Follow-up work after the generation-layer rebuild
+
+Written 2026-10-27 from the measurements of the first campaigns (`oxpecker fuzz`, ten minutes
+and one hour; corpora in the session scratchpad, numbers reproduced below). Each item says what
+was observed, what the design should be, and why. Decisions already taken are in
+`docs/generation-layer-decisions.md`; the implementation is described in
+`docs/implementation-generation-layer.md`.
+
+## 1. Extension re-draws the whole lineage: cache the parent — done 2026-10-27 (G48)
+
+**Observation.** A corpus entry is the Hypothesis choice sequence of a lineage (G35). Extending
+it (`fuzz.extend`) replays that sequence as a prefix and draws the new steps after it. Replaying
+re-executes everything: the base program's generation (builder, typer, verify, lift choices) and
+every earlier mutation step, each with its own analysis, verify and lift of the whole program.
+Measured on the hour-long run's corpus (median entry: 277 choices, 80 instructions, one to two
+steps):
+
+| stage | time |
+|---|---|
+| fresh lineage (generate, verify, lift choices) | 97 ms |
+| replay an entry from its choices | 250 ms |
+| extend an entry | 287 ms |
+| one mutation step alone (analysis, mutator, verify, lift) | 30–40 ms |
+| lift to JavaScript | 17 ms |
+| Rhino, both modes, with coverage | 201 ms |
+
+So generation plus mutation already cost as much as Rhino per run, and the cost of an
+extension is linear in the depth of the lineage it extends.
+
+**Design.** Keep the parent lineage object. The loop already replays an entry to get its
+program; cache `choices -> Lineage` (an LRU of a few hundred entries, or the lineages of the
+entries sampled this round). To extend, draw only the new steps:
+
+```python
+data = seeded_data(rng=rng)                                   # fresh choices only
+with BuildContext(data, wrapped_test=lambda: None):
+    child = data.draw(evolved(options, steps, base=parent_lineage.program))   # draws no base
+entry_choices = parent_choices[:-1] + (True,) + tuple(data.choices)
+```
+
+`evolved(base=...)` draws nothing for the base, so the choices it consumes are exactly the ones
+a full replay consumes after the parent's stop flag is flipped to `True`. The stored sequence is
+therefore the same as today's and replays with `ConjectureData.for_choices` unchanged; shrinking
+(which replays from the stored sequence) is unaffected. Extension drops from ~290 ms to the cost
+of the new steps (~40 ms each) plus a dictionary lookup. One subtlety: `evolved(base=program)`
+must start its step numbering where the parent stopped (`step=len(parent.steps)+1`), and the
+cached lineage's `rejected` count must be carried over, because the replayed lineage's "one
+more?" loop counts rejected steps against the cap.
+
+**Test.** For each of fifty corpus entries: extend through the cache, then replay the stored
+sequence from scratch and assert the two programs have the same `signature`.
+
+**Done.** `evolved(parent=)`, `fuzz.extend(..., parent)`, `fuzz.LineageCache`; the test is
+`test_extension_draws_only_the_new_steps_and_replays_identically` (twelve seeds, also checking
+the steps and the rejected count, and that extending without the parent in hand draws the same
+choices). The prefix is the single `True` rather than the whole parent sequence, so `evolved`
+draws its "one more?" flag as before and needs no special first iteration. Measured afterwards
+(parents with two steps, default options, thirty seeds): extension 92 ms median through the
+cache, 237 ms through replay, a fresh lineage 58 ms. The remaining cost is the new steps
+themselves (each one analyses, verifies and lifts the whole program) and the occasional
+rejected step. Cache hits and misses are in the run summary (`lineage-cache-hits`,
+`lineage-cache-misses`); a campaign started from an existing corpus misses once per entry.
+A three-minute campaign afterwards (seed 5, no compaction): 997 runs at 5.5 runs/s, corpus
+330, 17 610 probes, 792 cache hits and no misses, 125 extension attempts refused at the cap
+(item 2); the ten-minute campaign before the change ran at 3.6 runs/s. Its hard signatures
+were the continuation pair and the recorded top-level multiply-by-zero regression.
+
+## 2. The step cap makes corpus entries dead ends: rebase — per-round cap done 2026-10-27 (G49), rebasing deferred
+
+**Observation.** `steps` (default 5) caps a lineage's total depth, not the number of steps per
+extension round. An entry at the cap cannot be extended (`extend` returns None: its last choice
+is not the stop flag), and the loop falls back to a fresh program. This happened for 221 of
+1 716 extension attempts in the ten-minute run and 47 of 454 in the hour (`extend-failed` in
+`last-run.json`). Depth distribution of the ten-minute corpus: 166 entries with 0 steps, 112
+with 1, 72 with 2, 58 with 3, 47 with 4, 36 with 5. The corpus never evolves more than five
+mutations from a generated base, and the deepest entries, which are the most evolved, are the
+ones that stop evolving.
+
+Raising `steps` is cheap in buffer terms (entries used at most 2 317 of the 8 192 serialised
+bytes Hypothesis allows per test case, median ~550; a step adds 250–400) but it still grows the choice
+sequence, and Hypothesis's shrinker gets slower with the sequence length (item 1 took the
+replay cost out of extension, not out of shrinking).
+
+**Design: rebasing** (proposal §5.3's escape hatch). When a parent is at the cap, make its
+final program the new base of a fresh lineage: `evolved(options, steps, base=parent.program)`
+drawn from fresh choices. The new entry records `rebased_from: parent.id` and its own choices
+(the new steps only). Replay is recursive: replay the parent, take its program, then replay the
+new choices on top. Everything in the rebased prefix is outside the child's choice sequence
+(form B of proposal §3.5): Hypothesis can shrink the new steps but not the base. That is
+acceptable because findings are shrunk a second time at statement level (`shrink_lifted`,
+G40), which does not care where the program came from. Bound the chain length (a rebase of a
+rebase ...) at, say, four, and count rebases in the summary.
+
+The alternative, a per-round cap (Fuzzilli's `consecutiveMutations`) with an unbounded lineage,
+keeps everything shrinkable (item 1 makes it affordable) but still grows the choice sequence
+without bound; the corpus would need compaction (G45 says compaction is too expensive to run on insert)
+or a rebase once the sequence nears the buffer anyway.
+
+**Done: the per-round cap** (G49). `steps` is now per round; the child's cap is the parent's
+depth plus `steps`, recorded on the lineage and the entry and used by `replay`; `max_depth`
+(default 20, `--max-lineage-depth`) is the only dead end. Rebasing stays on this list for the
+day a campaign shows entries at `max_depth` (`stats["at-max-depth"]`); until then it is not
+worth its cost in shrinkability.
+
+## 3. `combine` dominates what reaches new coverage — weights done 2026-10-27 (G50)
+
+**Observation.** Of the 798 mutation steps recorded in the ten-minute run's corpus entries,
+`combine` accounts for 212 and `codegen` for 154; `number_flip` for 11. The mutators are drawn
+uniformly, so `combine` is three times as productive as its share. It appends a whole fresh
+program, so it reaches new probes almost by construction and drags the corpus towards large
+programs (the largest entry has 333 instructions; the median 89). Large programs run slower,
+shrink slower and spend more of their behaviour on code that is not under mutation.
+
+**Design.** Either give `combine` (and `codegen`) a lower weight in `MUTATORS` (the list is
+flat today; a weights tuple as for generators), or credit coverage per added instruction when
+deciding whether a child enters the corpus (new probes divided by the instructions the step
+added, with a threshold), or cap the instruction count of corpus entries. Measure with the
+mutator-usage count above after each change; the number to watch is new probes per run.
+
+**Done: weights** (G50): `combine` 1, `codegen` 2, the rest 3 (`mutate.MUTATOR_WEIGHTS`).
+The per-mutator `corpus` count in the run summary (item 4) is the measure; coverage per added
+instruction and an instruction cap remain options if the corpus still grows large.
+
+## 4. Mutation rejections are not aggregated — done 2026-10-27 (G51)
+
+`Lineage.rejected` counts the steps a lineage skipped because the child did not verify; the run
+summary does not sum them. Add `stats["rejected-steps"]` and a per-mutator breakdown (which
+mutator's children fail verification most) so the 35 % rejection bound of design §10 item 8 is
+observed in campaigns, not only in the unit test.
+
+**Done** (G51): `stats["steps-attempted"]`, `stats["steps-rejected"]`, and `mutators[name]`
+with `attempted`, `rejected` and `corpus` (steps of the entries added) in `last-run.json`.
+
+**First measurement** (three minutes, seed 5, after items 1–4): 711 runs at 3.9 runs/s,
+corpus 252, 16 567 probes, deepest entry 13 steps, 53 entries deeper than the old cap of 5,
+no extension refused. Steps attempted 1 273, rejected 284 (22 %, under the 35 % bound), but
+not evenly: `number_flip` 133 of 163 (not applicable without a number variable, item 6) and
+`activation` 59 of 171. Productive steps per mutator: codegen 66, splice 57, input 47,
+declaration_kind 44, combine 41 (11 % of 368, down from 27 %), operation 38, reassign 34,
+activation 33, number_flip 8. Entry size median 75 instructions, largest 421. The run rate
+is below the 5.5 runs/s of the three-minute run before the per-round cap: deeper lineages
+cost more per extension and per Rhino run, which is the trade the cap makes.
+
+**Hour-long measurement** (seed 11, `max_depth` 20, known signatures loaded, 2026-10-27):
+7 343 runs at 2.0 runs/s, corpus 4 517, 18 081 of 46 447 probes covered, deepest entry 20
+with 17 extensions refused at `max_depth` (so rebasing, item 2, is still not worth doing).
+Steps attempted 12 820, rejected 2 462 (19 %); `number_flip` again rejected 1 392 of 1 618.
+Corpus steps per mutator: declaration_kind 914, input 899, reassign 863, splice 862,
+operation 851, activation 783, codegen 699, combine 437 (7 %), number_flip 148. Verdicts:
+equal 1 877, java-types 4 558 (62 % of runs; 109 distinct Integer-vs-Double signatures, one
+class), hard 609 (582 continuation differences, 16 multiply-by-zero, 7 super-property
+write-backs under new signatures, 3 under coarse status signatures), soft 12, skip 62,
+discard 225. The run rate halved against the three-minute run for two reasons: the lineage
+cache (capacity 512) lost 3 444 of 5 923 lookups once the corpus outgrew it, so most
+extensions replayed their parent (237 ms against 92 ms, item 1), and entries are larger.
+Findings: one new Rhino bug (`tests/regressions/compiled-bigint-relop-number-literal-local.js`)
+that sat under a known coarse signature, three reproducers that were the known super-property
+family again. Lesson: exact-string signatures are too fine when the probe prints an object
+(every prototype shape is a new signature for the same bug) and too coarse when only the
+status differs (two unrelated compiled-mode throws share one). `hard.jsonl` keeps the first
+program per signature, known or not, so triaging it per campaign is cheap and found the bug.
+
+## 5. Compaction as a separate pass
+
+G45: compaction on insert made the loop twenty times slower for less coverage, because early in
+a campaign nearly every run adds an entry. If a smaller corpus is wanted (for sharing, or to
+keep replay cheap), compact as a separate command over an existing corpus, oldest entries first,
+with the same `Shrinker` and a per-entry budget; the loop itself never compacts.
+
+## 6. Smaller items
+
+- `fuzz.LineageCache` has a fixed capacity of 512 lineages; an hour's corpus is nine times
+  that and 58 % of extensions fell back to replay. A lineage is a few hundred instructions
+  plus its choices, so the cache can simply follow the corpus size (or be unbounded with a
+  byte budget); measure the run rate before and after.
+- Finding signatures for de-duplication (item 4's lesson): a status-only signature should
+  carry the thrown error's name and message, and a value diff that prints an object should
+  not depend on its prototype's name. Until then, read the first program per known signature
+  in `hard.jsonl` after every campaign.
+- The super-property family (`super.__proto__` with compound or logical assignment) is found
+  again in every campaign because `__proto__` is the one accessor every object has; a lower
+  weight for `super_property_update` would buy time for other shapes.
+- The `operations` family's remaining throws are BigInt mixed with Number and Symbol in
+  arithmetic, which are correct TypeErrors; `operand()` (G46) keeps them to ~15 % of draws.
+  The next completion-rate item is the `calls` family at 75 %.
+- `number_flip` is rarely applicable (it needs a number variable in scope) and rarely
+  productive; a variant that first inserts a number-var function and then flips would make
+  the compiled-mode bug shape (`compiled-bigint-in-number-typed-local.js`) reachable by
+  mutation, not only by the `numeric_local_type_flip` generator.
+- Splice donors from the corpus were decided against (G44); revisit with item 2 in place, since
+  a rebased base is already a constant and a donor could be treated the same way.

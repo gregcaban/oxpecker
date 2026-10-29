@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .gen.strategies import Program
 from .harness.client import RunResult
 from .harness.compare import Verdict
 
@@ -33,7 +32,7 @@ def known_signatures(client: Any, regressions: Path = DEFAULT_DIR.parent / "regr
     return sigs
 
 
-def record(prog: Program, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAULT_DIR,
+def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAULT_DIR,
            reproducer: bool = False, choices: list[int] | None = None, replay_cmd: str = "oxpecker diff") -> Path | None:
     """Appends to <kind>.jsonl once per signature. With `reproducer`, (over)writes
     <kind>-<sig>.js with the probed source (trace findings need the probes) and returns its path."""

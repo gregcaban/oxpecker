@@ -35,6 +35,8 @@ class Outcome:
     reason: str | None = None
     ms: int = 0
     newProbes: int | None = None
+    newProbeIds: dict[str, list[int]] | None = None        # with coverage_new_ids: which probes were new
+    requiredReached: dict[str, list[int]] | None = None    # with coverage_require: the subset reached
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> "Outcome":
@@ -172,7 +174,8 @@ class HarnessClient:
     def run(self, source: str, *, modes: tuple[str, ...] = DEFAULT_MODES, language_version: int = 200,
             strict: bool = False, instruction_budget: int = 5_000_000, wall_ms: int = 5000, seed: int = 1,
             id: str | None = None, source_name: str = "case.js", continuations: bool | None = None,
-            coverage_bucket: str | None = None) -> RunResult:
+            coverage_bucket: str | None = None, coverage_new_ids: bool = False,
+            coverage_require: dict[str, list[int]] | None = None) -> RunResult:
         """Runs one case in every mode. If the JVM dies or asks to be restarted, the missing modes
         are reported as crash/timeout and the JVM is restarted."""
         case_id = id or uuid.uuid4().hex[:12]
@@ -182,6 +185,10 @@ class HarnessClient:
                # Auto-detected unless stated: only scripts that pause need the continuation runner.
                "continuations": ("__pause" in source or "Continuation" in source) if continuations is None else continuations,
                "coverageBucket": coverage_bucket}
+        if coverage_new_ids:
+            req["coverageNewIds"] = True
+        if coverage_require is not None:
+            req["coverageRequire"] = coverage_require
         if self.cases_since_start >= self.recycle_every:
             self.restart()
         self.cases_since_start += 1

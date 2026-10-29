@@ -1,0 +1,53 @@
+"""Generation options: what a program draw is parameterised by. Kept in its own module because
+`program.py` stores them on every program and `strategies.py` reads them."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Mapping
+
+ALL_TOGGLES = frozenset({"let", "generators", "for-of", "destructuring", "spread", "continuations", "with", "eval"})
+TOGGLE_LET = "let"     # named here so the mutators can test for it without spelling a keyword
+
+
+DEFAULT_MIN_STATEMENTS = 3
+
+
+@dataclass(frozen=True)
+class GenOptions:
+    min_statements: int | None = None   # None: DEFAULT_MIN_STATEMENTS, lowered to max_statements when that is smaller
+    max_statements: int = 12
+    max_depth: int = 3
+    probe_every: int = 1            # a Probe after every n top-level statements; 0 = none
+    probe_width: int = 6            # variables observed per probe
+    strict: bool = False
+    language_version: int = 200
+    toggles: frozenset[str] = ALL_TOGGLES
+    families: frozenset[str] | None = None      # restrict the pools to these families
+    generators: frozenset[str] | None = None    # restrict the pools to these generators
+    weights: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))   # name or family -> multiplier
+
+    def __post_init__(self) -> None:
+        for name in ("toggles", "families", "generators"):      # any iterable from a shell or the CLI
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, frozenset):
+                object.__setattr__(self, name, frozenset(value))
+        if self.min_statements is None:
+            object.__setattr__(self, "min_statements", min(DEFAULT_MIN_STATEMENTS, self.max_statements))
+        if self.min_statements < 0 or self.max_statements < 0:
+            raise ValueError(f"statement bounds must not be negative: min_statements={self.min_statements}, "
+                             f"max_statements={self.max_statements}")
+        if self.max_statements < self.min_statements:
+            raise ValueError(f"max_statements={self.max_statements} is below min_statements={self.min_statements}")
+        if self.max_depth < 0:
+            raise ValueError(f"max_depth must not be negative: {self.max_depth}")
+        unknown = self.toggles - ALL_TOGGLES
+        if unknown:
+            raise ValueError(f"unknown toggles: {sorted(unknown)}")
+        object.__setattr__(self, "weights", MappingProxyType(dict(self.weights)))
+
+    def __hash__(self) -> int:
+        return hash((self.min_statements, self.max_statements, self.max_depth, self.probe_every, self.probe_width,
+                     self.strict, self.language_version, self.toggles, self.families, self.generators,
+                     tuple(sorted(self.weights.items()))))

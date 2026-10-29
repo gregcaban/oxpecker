@@ -1,132 +1,177 @@
-<p align="center"><img src="docs/oxpecker.jpg" width="480" alt="Red-billed oxpeckers on a white rhino, Kruger National Park"></p>
-<p align="center"><sub>Photo: Joel Herzog, Kruger Park, South Africa (<a href="https://commons.wikimedia.org/wiki/File:Kruger_Park,_South_Africa_(Unsplash_1xetOxStk_Y).jpg">Wikimedia Commons</a>, CC0)</sub></p>
-
 # oxpecker
 
-Differential testing of Mozilla Rhino: every generated JavaScript program is run in Rhino's
-**interpreted** mode and its **compiled** (JVM bytecode) mode, the results are canonicalised,
-and any difference is a bug candidate. Design: [`docs/design.md`](docs/design.md) (the original
-brief is `docs/brief-2026-10-18-original.md`).
+Differential testing of [Mozilla Rhino](https://github.com/mozilla/rhino). Rhino runs JavaScript
+two ways: an **interpreter**, and a **compiler** that emits JVM bytecode. The two should agree on
+every program. oxpecker generates programs, runs each one both ways in one JVM, canonicalises what
+came out, and treats any difference as a bug candidate. The
+[findings so far](docs/findings-explained.md) range from `-0` lost in compiled arithmetic to
+`super` references that crash the compiler.
 
-```
-Python (Hypothesis)                        Java harness (one JVM, Rhino embedded)
-  oxpecker/gen/      programs as JS text     harness-java/   fresh Context+scope per case & mode,
-  oxpecker/harness/  client + comparator ──▶                 canonicaliser, probes, budget, watchdog
-  tests/             property test, self-tests, regressions, test262 seeds
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, system-ui, sans-serif", "fontSize": "14px", "lineColor": "#64748b", "edgeLabelBackground": "#ffffff", "clusterBkg": "#f8fafc", "clusterBorder": "#94a3b8"}}}%%
+flowchart LR
+    subgraph py["Python"]
+        G["generate or mutate<br/>Hypothesis strategies over the IL"] --> L["lift<br/>IL to JavaScript"] --> C["harness client"]
+        V["compare<br/>equal · java-types · soft · hard"] --> K["corpus + findings<br/>new coverage kept, bugs shrunk"]
+        K -. next round .-> G
+    end
+    subgraph jvm["Java harness, one JVM with Rhino embedded"]
+        H["fresh scope<br/>per case and mode"] --> I["interpreted"] --> N["canonicalise<br/>values, probes, errors"]
+        H --> O["compiled"] --> N
+    end
+    C -- "source" --> H
+    N -- "outcomes, coverage" --> V
+    classDef gen fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+    classDef rhino fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef out fill:#dcfce7,stroke:#16a34a,color:#14532d
+    class G,L,C gen
+    class H,I,O,N rhino
+    class V,K out
+    style py fill:#f8fafc,stroke:#94a3b8,stroke-width:1px
+    style jvm fill:#fffbeb,stroke:#d97706,stroke-width:1px
 ```
 
-## Setup
+## Install
+
+JDK 21 and Python 3.13.
 
 ```bash
-# 1. Rhino at the pinned commit (JDK 21 to build): publishes org.mozilla:rhino:2.0.0-SNAPSHOT to ~/.m2
-(cd ../rhino && git checkout b95f75d && JAVA_HOME=/usr/local/opt/openjdk@21 ./gradlew :rhino:publishToMavenLocal -x test)
-# 2. Harness jar (the Rhino version is `rhinoVersion` in harness-java/gradle.properties)
-(cd harness-java && ./gradlew fatJar)
-# 3. Python
+(cd harness-java && ./gradlew fatJar)              # harness jar, bundles Rhino 1.9.2 from Maven Central
 python3.13 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 source .venv/bin/activate
 ```
 
-## Try it
+The Rhino version is `rhinoVersion` in `harness-java/gradle.properties`; a locally published
+snapshot works as well.
+
+## First run
+
+Generate a handful of programs and read them:
 
 ```bash
-oxpecker list                                     # generators (82) and templates, with toggles/weights
-oxpecker gen -n 50 -o runs/first --seed 1         # write case-0001.js … for reading
-oxpecker gen -n 50 -o runs/first --seed 1 --run   # … and run them in both modes, print findings
-oxpecker run runs/first tests/regressions -v      # run existing .js files
-oxpecker diff runs/first/case-0007.js             # one file: per-field first difference between modes
-oxpecker corpus test262 --filter language/statements/try   # replay test262 (value-level comparison)
-oxpecker corpus test262 --known-divergences       # files Rhino's test262.properties tags per mode
-oxpecker probe                                    # refresh the Rhino capability table (API generators)
-oxpecker run runs/first --coverage                # JaCoCo over Rhino: which optimizer/interpreter code was reached
-oxpecker fuzz --corpus runs/corpus --time 600     # coverage-guided corpus fuzzing; resumes corpus + coverage frontier
-oxpecker export -o ui/data --per-generator 20     # sample every generator/template for the inspector UI (+ --coverage)
-bin/harness --replay runs/first/case-0007.js      # one file, full per-mode detail
-bin/harness --replay x.js --mode compiled --language-version 250 --budget 0   # no instruction observer
+oxpecker gen -n 10 -o runs/first --seed 1
 ```
 
-Per case: `case-NNNN.js` (with `__probe` state snapshots and `// [generator]` markers),
-`case-NNNN.plain.js` (the reproducer form), `case-NNNN.meta.json` (template, generators, line spans,
-stats) and after `--run` `case-NNNN.result.json` (both modes' outcomes + verdict).
+Each case is written three ways: `case_0003.js` with `__probe` snapshots and a `// [generator]`
+marker per statement, `case_0003.plain.js` without them, and `case_0003.il`, the intermediate form
+it was built in. A plain one looks like this:
 
-Generation knobs: `--toggle let|generators|for-of|destructuring|spread|continuations` (partial-support features),
-`--generator NAME` / `--template NAME` (repeatable allowlists), `--max-statements`, `--max-depth`,
-`--probe-every N`, `--no-probes`, `--no-comments`, `--no-swarm`, `--strict`.
-Run knobs: `--language-version 200|250`, `--wall-ms`, `--strict-java-types`.
+```js
+var arr0 = [];
+let n2 = 0x6708;
+for (let i4 in arr0) {
+    let n7 = -1000.0;
+    arr0[0] = "µ¹z";
+}
+var n10 = 33;
+var o11 = new BigUint64Array(n10);
+function f18(p19, p20, p21, p22) {
+    arr0[p21] /= n10;
+    return arr0;
+}
+for (let i26 = 0; i26 < 100; i26++) {
+    let arr33 = f18(f18, [4, 7, 10, 5], o11, "function");
+}
+```
+
+Run them through both modes and see the verdicts:
+
+```bash
+oxpecker gen -n 50 -o runs/first --seed 1 --run
+```
+
+```
+  1  java-types:diff Double,Double,Double vs Integer,Integer,Integer
+  interpreted  ok=15, throw=5
+  compiled     ok=14, throw=5, unsupported=1
+```
+
+Most programs agree. `java-types` means the JavaScript behaviour was identical and only the Java
+class of a number differed at the probe (the interpreter hands Java a `Double`, compiled code an
+`Integer`), which matters to embedders and is recorded, not failed on. A **hard** verdict is a
+real difference: a value, a thrown error, or a crash in one mode.
+
+Look at one file and see exactly where the modes part:
+
+```bash
+oxpecker diff tests/regressions/compiled-top-level-multiply-by-zero-loses-sign.js
+```
+
+```
+verdict: HARD: trace[0] arg1 true vs false
+trace[0]: first difference at char 9
+  interpreted  …"step" | ▶true | -Infinity | true…
+  compiled     …"step" | ▶false | Infinity | false…
+```
+
+That file is three lines: `var x = -3; var y = x * 0;` and a probe of `Object.is(y, -0)`. Compiled
+code types `x` as an int and loses the sign of zero.
+
+## Let it search
+
+```bash
+oxpecker fuzz -o runs/c1 --seconds 600
+```
+
+This is the loop in the diagram. It keeps a corpus of programs that each reached Rhino code
+nothing before them had (JaCoCo probes over Rhino's classes), extends a corpus entry by a few
+mutation steps or draws a fresh program, runs it, and keeps it if it covered something new. A hard
+verdict with a signature no regression already has is shrunk, first at the IL level by
+Hypothesis, then statement by statement on the source, and written to `tests/findings/` as a
+small reproducer. The corpus and coverage persist in `-o`, so a second run continues.
+
+An hour runs about seven thousand programs and has so far turned up one new Rhino bug per
+campaign; the numbers are in
+[the findings doc, section 7](docs/findings-explained.md#7-the-hour-long-campaigns).
+
+## The IL underneath
+
+Programs are not built as text. Generators and mutators are
+[Hypothesis](https://hypothesis.readthedocs.io/) strategies over a small typed intermediate
+language in the style of [Fuzzilli](https://github.com/googleprojectzero/fuzzilli)'s FuzzIL;
+a lifter turns it into JavaScript at the end. The `.il` file next to each case shows it:
+
+```
+v0 <- CreateArray(num_elements=0)
+v2 <- LoadInteger(value=26376, radix=<Radix.HEX: 16>)
+BeginForEachLoop(kind=<ForEachKind.IN: 'in'>, declaration=<DeclarationKind.LET: 'let'>) v0 -> v4, v5
+    v6 <- LoadFloat(value=1000.0, style=<FloatStyle.PLAIN: 'plain'>)
+    v7 <- UnaryOperation(op=<UnaryOperator.MINUS: 'minus'>) v6
+    SetElement(index=0) v0, v1
+EndForEachLoop()
+```
+
+Because mutation happens on the generator's choices rather than on JavaScript text, every
+mutant is a valid program, and Hypothesis's shrinker works on findings for free. A program's
+whole history is a choice sequence, which is what the corpus stores.
+
+To play with the pieces from a Python shell (generate, print the IL, lift, analyse, mutate, run in
+Rhino), follow [`docs/repl-tutorial.md`](docs/repl-tutorial.md). `oxpecker gen --evolve 4` writes
+cases that are the end of a four-step mutation lineage; `oxpecker list` prints the generators.
+
+## Reading on
+
+- [`docs/design.md`](docs/design.md): the harness, the comparison rules, the corpora, what is in scope.
+- [`docs/design-generation-layer.md`](docs/design-generation-layer.md) and
+  [`docs/implementation-generation-layer.md`](docs/implementation-generation-layer.md): the IL,
+  generators, mutators and the loop, as designed and as built.
+- [`docs/findings-explained.md`](docs/findings-explained.md): every finding by root cause, with
+  which mode is right; [`docs/upstream-crosscheck.md`](docs/upstream-crosscheck.md) has what Rhino
+  already knows about each.
+- [`docs/glossary.md`](docs/glossary.md): the words used above and in the code.
+- `oxpecker --help`: the other commands (replaying test262 and Rhino's own suites, coverage,
+  the capability probe, the inspector export).
+
+## Findings
+
+Every confirmed bug is a file under `tests/regressions/` with a header that says what both modes
+do and which is right; `oxpecker diff <file>` replays it, and the test suite checks it stays
+detected. The seven under `master-only/` show on Rhino master `b95f75d` but not on the 1.9.2
+release.
 
 ## Tests
 
 ```bash
-pytest tests/test_generator.py              # no JVM: determinism, every generator fires, node --check
-pytest tests/test_harness.py                # harness self-tests: isolation, fallback, budget, known findings
-pytest tests/test_differential.py           # the property test; OXPECKER_EXAMPLES=2000, OXPECKER_TOGGLES=let,generators
-OXPECKER_COVERAGE=1 pytest tests/test_differential.py   # ... steering on newly covered Rhino probes (JaCoCo)
+pytest                        # about three minutes; needs the harness jar
+pytest tests/il               # the generation layer alone, mostly without a JVM
 ```
-
-Hard findings from the property test are shrunk by Hypothesis and written to `tests/findings/<sig>.js`;
-confirmed ones move to `tests/regressions/` where `test_harness.py` checks they stay detected.
-
-`oxpecker fuzz` is the second search strategy: a Fuzzilli/AFL-style loop that keeps a corpus of
-programs (as choice sequences) which each reached Rhino code nothing before them had, mutates a
-uniformly chosen corpus entry (or draws fresh with `--p-new`), and adds the result when it covers
-new probes. Findings with an unknown signature are shrunk by delta-debugging the choice sequence and
-written to `tests/findings/`. The corpus and the JaCoCo coverage frontier persist in `--corpus`, so
-the next run continues where the last stopped. Every mutated program is valid by construction
-because mutation happens on the generator's choices, not on JS text.
-
-## Verdicts
-
-| situation | verdict |
-|---|---|
-| compiled mode silently fell back to the interpreter (class-size limit) | `skip` |
-| either mode crashed (VerifyError, NPE in codegen, OOM…) | **hard** |
-| status differs (ok / throw / syntax), or value / trace / output differ | **hard** |
-| thrown name or value differs | **hard** |
-| one mode timeout/resource, the other ok | soft |
-| only error messages differ | soft |
-| only the **Java representation** differs (`Integer` vs `Double`, `ConsString` vs `String`) | soft, or hard with `--strict-java-types` |
-| both timeout/resource | discard |
-| a mode reports `unsupported(continuations)` (Rhino refuses continuation capture outside the interpreter) | **hard**, own signature |
-
-## Findings so far (pinned Rhino b95f75d)
-
-Checked in under `tests/regressions/` (each must stay detected; `test_harness.py` enforces it):
-
-- `direct-recursive-call-completion.js` — direct recursive call with an `n === 0` base case returns a wrong value in compiled mode.
-- `compiled-negative-zero-lost-in-int-arith.js` — `var n = -1; n * 0` is `-0` interpreted, `0` compiled (int-typed top-level variable).
-- `java-int-literal-double-vs-integer.js` — the same number reaches Java as `Double` (interpreter) vs `Integer` (compiler).
-- `spread-in-call-crashes-both-modes.js` — `f(...a)` throws a raw `RuntimeException` from both evaluators instead of a SyntaxError.
-- `callsite-tostring-npe-both-modes.js` — `String(new CallSite())` is a `NullPointerException` in both modes.
-- `compiled-increment-int32-overflow.js` — `++`/`--` on top-level vars, activation locals, properties and elements wrap at int32 in compiled mode.
-- `arrow-function-has-prototype-compiled.js` — arrow functions get a `prototype` property in compiled mode.
-- `interpreted-computed-super-update.js` — `++super[k]` returns the key and `super[k]--` creates an own `"0"` property in the interpreter.
-- `interpreted-super-increment-string-concat.js` — `super.x++` on a string concatenates (`"a1"`) in the interpreter.
-- `compiled-proxy-extra-has-trap-on-get.js` — `p.x` through a Proxy fires `has` before `get` in compiled mode.
-- `array-find-no-args-aioobe-both-modes.js` — `Array.find()` throws a raw `ArrayIndexOutOfBoundsException` past JS try/catch.
-- From test262 (`oxpecker corpus test262`), `t262-*.js`, 14 root causes. Mode divergences: `apply` with a rest parameter on an array-like builds wrong arguments in the interpreter; generator-method `prototype` present interpreted / absent compiled; object-rest destructuring from a Proxy with a Symbol key (interpreter throws, compiler skips the trap); `Number(2n**1024n)` through a local throws only compiled; nested finally/throw inside a generator lets the throw escape only compiled; re-entrant `generator.next()` hits `FAILED ASSERTION` interpreted only; `yield` in a default parameter → `ClassFileFormatException`, `yield` from a catch inside for-of → `bad local variable type`, and `obj[p] &&= v` → `VerifyError`, all compiled only. Both-mode engine crashes: Proxy `getOwnPropertyDescriptor` returning undefined (NPE), `for (const [[x] = [1]] = []; …)` (NPE), `new Int8Array({length: 2**53})`, `BigInt.asIntN(2**32-1, 1n)`, string-iterator prototype confusion.
-- From Rhino's legacy Mozilla suite (`oxpecker corpus rhino-mozilla`): `compiled-yield-call-arg-verifyerror.js` (`z((yield 3))` → `VerifyError` in compiled mode), `compiled-relop-arg-stack-underflow.js` (`a(1 < 2)` from inside a function → `Stack underflow` in compiled mode), `nested-array-comprehension-bad-node-195.js` and `let-genexpr-switch-case-null-tokenstream.js` (JS1.7/1.8 comprehension forms crash both code generators), `string-doubling-overflow-negative-array-size.js` (2^31-char string).
-- `tests/seeds/` — the two test262 cases Rhino's own `test262.properties` tags as failing in one mode only, reproduced standalone.
-
-Java types are recorded for every number/string leaf the probes and the completion value see,
-because Rhino embedders observe them at the Java boundary. Where the raw representation is
-visible to Java, and where it is not:
-
-- **Host `Callable`s** (`__probe`, any `LambdaFunction`/`FunctionObject` an embedder installs),
-  the **script completion value**, `Function.call` return values and **properties read from JS
-  objects** (`ScriptableObject.getProperty`) all hand Java the raw object: `Integer` from
-  compiled code, `Double` from the interpreter. This is what the `java-types` verdict catches.
-- **LiveConnect method calls** (`J.echo(x)`, any `NativeJavaMethod`) coerce arguments first:
-  every JS number becomes `Double` for an `Object` parameter (`NativeJavaObject.coerceTypeImpl`),
-  or `Long` when `FEATURE_INTEGER_WITHOUT_DECIMAL_PLACE` is on. Differences there are
-  conversion/overload bugs rather than representation leaks; `JavaProbe` traces both.
-
-## Layout
-
-- `harness-java/` — Gradle project. `Harness` (JSON-lines server + `--replay`), `ModeRunner`
-  (per-mode execution on a 64 MB-stack thread with watchdog), `Host` (print/`__probe`/canon),
-  `RhinoCompat` (every version-sensitive Rhino call, reflective), `canon.js`, `prelude.js`.
-- `oxpecker/gen/` — `builder.py` (ProgramBuilder: typed variable pool, scopes, probes, generator
-  spans), `registry.py`, `generators/*.py` (values, containers, operations, properties, calls,
-  control, compiler-targeted, exotic, toggled), `templates.py`, `strategies.py`.
-- `oxpecker/harness/` — `client.py` (JVM lifecycle, restarts), `compare.py`.
-- `bin/harness` — launcher using JDK 21 (`OXPECKER_JAVA` overrides).

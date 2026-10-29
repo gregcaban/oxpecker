@@ -3,7 +3,9 @@ package dev.oxpecker.harness;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -50,23 +52,58 @@ final class Coverage {
         return agent != null;
     }
 
+    /** What one drain found: probes new to this JVM, and optionally which ones, and which of a
+     *  required set this run reached. Probe sets are keyed by class name (stable across JVMs). */
+    static final class Drained {
+        int fresh;
+        Map<String, List<Integer>> newIds;          // only when requested
+        Map<String, List<Integer>> requiredReached; // only when a required set was sent
+    }
+
     /** Drains the agent and merges into {@code bucket}; returns probes newly covered overall. */
     synchronized int drain(String bucket) {
-        if (agent == null) return 0;
+        return drain(bucket, false, null).fresh;
+    }
+
+    /**
+     * Drains the agent (resetting it, so the data is exactly what this run hit), merges into
+     * {@code bucket} and the cumulative store, and reports the probes hit for the first time in
+     * this JVM -- with {@code wantIds}, also which ones -- and, for {@code required}, the subset of
+     * it this run reached. Shrinking a corpus entry needs the latter: on a re-run its probes are no
+     * longer new, so "new probes > 0" cannot be the property; "reaches P" can.
+     */
+    synchronized Drained drain(String bucket, boolean wantIds, Map<String, List<Integer>> required) {
+        Drained d = new Drained();
+        if (wantIds) d.newIds = new TreeMap<>();
+        if (required != null) d.requiredReached = new TreeMap<>();
+        if (agent == null) return d;
         byte[] data = ((org.jacoco.agent.rt.IAgent) agent).getExecutionData(true);
         ExecutionDataStore store = buckets.computeIfAbsent(bucket, k -> new ExecutionDataStore());
-        int[] fresh = {0};
         ExecutionDataReader reader = new ExecutionDataReader(new ByteArrayInputStream(data));
         reader.setSessionInfoVisitor(new SessionInfoStore());
         reader.setExecutionDataVisitor(ed -> {
             ExecutionData prev = cumulative.get(ed.getId());
             boolean[] probes = ed.getProbes();
-            if (prev == null) {
-                for (boolean p : probes) if (p) fresh[0]++;
-                totalProbes += probes.length;
-            } else {
-                boolean[] old = prev.getProbes();
-                for (int i = 0; i < probes.length && i < old.length; i++) if (probes[i] && !old[i]) fresh[0]++;
+            boolean[] old = prev == null ? new boolean[0] : prev.getProbes();
+            if (prev == null) totalProbes += probes.length;
+            List<Integer> ids = null;
+            for (int i = 0; i < probes.length; i++) {
+                if (probes[i] && (i >= old.length || !old[i])) {
+                    d.fresh++;
+                    if (wantIds) {
+                        if (ids == null) ids = new ArrayList<>();
+                        ids.add(i);
+                    }
+                }
+            }
+            if (ids != null) d.newIds.put(ed.getName(), ids);
+            if (required != null) {
+                List<Integer> want = required.get(ed.getName());
+                if (want != null) {
+                    List<Integer> got = new ArrayList<>();
+                    for (int i : want) if (i < probes.length && probes[i]) got.add(i);
+                    if (!got.isEmpty()) d.requiredReached.put(ed.getName(), got);
+                }
             }
             cumulative.put(copy(ed));
             store.put(copy(ed));
@@ -76,7 +113,7 @@ final class Coverage {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-        return fresh[0];
+        return d;
     }
 
     private static ExecutionData copy(ExecutionData ed) {

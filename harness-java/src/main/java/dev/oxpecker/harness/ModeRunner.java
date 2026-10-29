@@ -10,7 +10,6 @@ import org.mozilla.javascript.JavaScriptException;
 import org.mozilla.javascript.RhinoException;
 import org.mozilla.javascript.Script;
 import org.mozilla.javascript.ScriptableObject;
-import org.mozilla.javascript.TopLevel;
 import org.mozilla.javascript.Undefined;
 import org.mozilla.javascript.WrappedException;
 
@@ -55,7 +54,10 @@ final class ModeRunner {
         o.ms = (System.nanoTime() - start) / 1_000_000;
         if (coverage.enabled()) {
             String bucket = (req.coverageBucket == null ? "*" : req.coverageBucket) + "|" + mode.wire;
-            o.newProbes = coverage.drain(bucket);
+            Coverage.Drained d = coverage.drain(bucket, Boolean.TRUE.equals(req.coverageNewIds), req.coverageRequire);
+            o.newProbes = d.fresh;
+            o.newProbeIds = d.newIds;
+            o.requiredReached = d.requiredReached;
         }
         return o;
     }
@@ -78,8 +80,8 @@ final class ModeRunner {
             cx.putThreadLocal(HarnessFactory.BUDGET_KEY, new Budget(req.instructionBudget(), req.wallMs()));
 
             // No LiveConnect, no shared state: a fresh scope per case and per mode.
-            TopLevel scope = cx.initSafeStandardObjects(new TopLevel());
-            ScriptableObject global = scope.getGlobalThis();
+            ScriptableObject scope = RhinoCompat.newTopLevel(cx);
+            ScriptableObject global = RhinoCompat.globalThis(scope);
             host.install(cx, scope, req.seed());
 
             String src = req.source;
@@ -133,6 +135,15 @@ final class ModeRunner {
                 if (msg != null && (msg.contains("too much recursion") || msg.contains("stack"))) {
                     return resource(o, "stack");
                 }
+                if (msg != null && (msg.contains("Direct call is not supported") || msg.contains("ontinuation"))) {
+                    // `new Continuation()` in the compiled mode: the constructor only works under the
+                    // interpreter ("Direct call is not supported"), a by-design mode difference like
+                    // the IllegalStateException below, not a script-visible InternalError.
+                    o.status = Outcome.UNSUPPORTED;
+                    o.reason = "continuations";
+                    o.engineException = Outcome.describe(e);
+                    return o;
+                }
                 return thrown(o, host, cx, "evaluator", null, "InternalError", msg);
             } catch (OutOfMemoryError e) {
                 poisoned = true;
@@ -177,7 +188,7 @@ final class ModeRunner {
      * value, logging every round. A compiled script runs plainly: its __pause() calls fail
      * inside Rhino, which the normal exception classification reports.
      */
-    private static Object execute(Context cx, TopLevel scope, ScriptableObject global, Script script,
+    private static Object execute(Context cx, ScriptableObject scope, ScriptableObject global, Script script,
             Request req, Host host, Outcome o) {
         if (!req.continuations() || !Boolean.FALSE.equals(o.compiledActually)) {
             return script.exec(cx, scope, global);

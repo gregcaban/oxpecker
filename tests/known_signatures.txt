@@ -3,3 +3,7 @@
 # fail on them, so a long run keeps looking for new divergences. One per line; # comments.
 hard:value -0 vs 0
 hard:trace[] arg -0 vs 0
+# Continuations are interpreter-only: a program that pauses reports "unsupported" in the compiled
+# mode by design (project-continuations-in-scope). Logged, not shrunk or failed on.
+hard:status interpreted=ok vs compiled=unsupported(continuations)
+hard:status interpreted=throw vs compiled=unsupported(continuations)

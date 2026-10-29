@@ -30,6 +30,11 @@ public final class Request {
     public Integer maxResumes;
     /** Coverage bucket (e.g. the generator name) this case's execution data is merged into. */
     public String coverageBucket;
+    /** Also report WHICH probes were hit for the first time (Outcome.newProbeIds). */
+    public Boolean coverageNewIds;
+    /** A probe set (class name -> probe indices); report the subset this run reached
+     *  (Outcome.requiredReached). Used to shrink a corpus entry while it keeps reaching its probes. */
+    public java.util.Map<String, java.util.List<Integer>> coverageRequire;
     /** For cmd coverage-save / coverage-load: the .exec file path. */
     public String path;
 
