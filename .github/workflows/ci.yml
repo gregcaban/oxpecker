@@ -26,7 +26,8 @@ jobs:
 
       - name: Build the harness jar (bundles Rhino from Maven Central)
         working-directory: harness-java
-        run: ./gradlew --no-daemon fatJar
+        # gradle.properties pins org.gradle.java.home to a local path; the command line wins.
+        run: ./gradlew --no-daemon -Dorg.gradle.java.home="$JAVA_HOME" fatJar
 
       - name: Python 3.13
         uses: actions/setup-python@v5
