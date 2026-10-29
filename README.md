@@ -13,7 +13,7 @@ flowchart TB
     subgraph py["Python"]
         direction LR
         G["generate or mutate<br/>Hypothesis strategies over the IL"] --> L["lift<br/>IL to JavaScript"] --> C["harness client"]
-        V["compare<br/>equal · java-types · soft · hard"] --> K["corpus + findings<br/>new coverage kept, bugs shrunk"]
+        C ~~~ V["compare<br/>equal · java-types · soft · hard"] --> K["corpus + findings<br/>new coverage kept, bugs shrunk"]
         K -. next round .-> G
     end
     subgraph jvm["Java harness, one JVM with Rhino embedded"]
@@ -21,8 +21,8 @@ flowchart TB
         H["fresh scope<br/>per case and mode"] --> I["interpreted"] --> N["canonicalise<br/>values, probes, errors"]
         H --> O["compiled"] --> N
     end
-    C -- "source" --> H
-    N -- "outcomes, coverage" --> V
+    py -- "source" --> jvm
+    jvm -- "outcomes, coverage" --> py
     classDef gen fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
     classDef rhino fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef out fill:#dcfce7,stroke:#16a34a,color:#14532d
