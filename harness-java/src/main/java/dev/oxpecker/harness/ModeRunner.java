@@ -82,8 +82,8 @@ final class ModeRunner {
             cx.putThreadLocal(HarnessFactory.BUDGET_KEY, new Budget(req.instructionBudget(), req.wallMs()));
 
             // No LiveConnect, no shared state: a fresh scope per case and per mode.
-            ScriptableObject scope = RhinoCompat.newTopLevel(cx);
-            ScriptableObject global = RhinoCompat.globalThis(scope);
+            Object scope = Scopes.newTopLevel(cx);
+            ScriptableObject global = Scopes.globalThis(scope);
             host.install(cx, scope, req.seed());
 
             String src = req.source;
@@ -190,14 +190,14 @@ final class ModeRunner {
      * value, logging every round. A compiled script runs plainly: its __pause() calls fail
      * inside Rhino, which the normal exception classification reports.
      */
-    private static Object execute(Context cx, ScriptableObject scope, ScriptableObject global, Script script,
+    private static Object execute(Context cx, Object scope, ScriptableObject global, Script script,
             Request req, Host host, Outcome o) {
         if (!req.continuations() || !Boolean.FALSE.equals(o.compiledActually)) {
-            return script.exec(cx, scope, global);
+            return Scopes.exec(script, cx, scope, global);
         }
         org.mozilla.javascript.ContinuationPending pending;
         try {
-            return cx.executeScriptWithContinuations(script, scope);
+            return Scopes.executeWithContinuations(cx, script, scope);
         } catch (org.mozilla.javascript.ContinuationPending p) {
             pending = p;
         }
@@ -211,7 +211,7 @@ final class ModeRunner {
             }
             // Resume with the paused value itself, so `var x = __pause(v)` sees x === v.
             try {
-                Object r = cx.resumeContinuation(pending.getContinuation(), scope, paused);
+                Object r = Scopes.resumeContinuation(cx, pending.getContinuation(), scope, paused);
                 host.continuations.add("end");
                 return r;
             } catch (org.mozilla.javascript.ContinuationPending p) {

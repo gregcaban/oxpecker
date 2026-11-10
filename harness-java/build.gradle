@@ -16,7 +16,13 @@ configurations {
 }
 
 dependencies {
-    implementation "org.mozilla:rhino:${rhinoVersion}"
+    // -PrhinoJar=PATH runs a locally built Rhino (e.g. master) instead of the published one;
+    // name it with -PrhinoVersion=... so the harness reports what it runs.
+    if (project.hasProperty('rhinoJar')) {
+        implementation files(project.property('rhinoJar'))
+    } else {
+        implementation "org.mozilla:rhino:${rhinoVersion}"
+    }
     implementation 'com.google.code.gson:gson:2.11.0'
     // Coverage of Rhino itself (brief §9.9): the agent is attached by bin/harness when
     // OXPECKER_COVERAGE=1; core analyses the exec data against the Rhino classes.
@@ -32,6 +38,11 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
 }
+
+// Calls that take a scope are compiled per Rhino API line (Scopes.java): 1.x, or 2.0 (master
+// since 04729d7e2, scopes are VarScope). Chosen from rhinoVersion; -PrhinoApi=1|2 overrides.
+def rhinoApi = project.findProperty('rhinoApi') ?: (rhinoVersion.startsWith('1.') ? '1' : '2')
+sourceSets.main.java.srcDir "src/rhino${rhinoApi}/java"
 
 application {
     mainClass = 'dev.oxpecker.harness.Harness'

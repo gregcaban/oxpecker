@@ -3,13 +3,13 @@ package dev.oxpecker.harness;
 import java.lang.reflect.Method;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Script;
-import org.mozilla.javascript.ScriptableObject;
-import org.mozilla.javascript.TopLevel;
 
 /**
  * Every call that depends on a particular Rhino version lives here, so that bumping
  * {@code rhinoVersion} in gradle.properties touches one file. Optional APIs are reached
- * reflectively and degrade to "unknown" rather than failing to compile.
+ * reflectively and degrade to "unknown" rather than failing to compile. Calls that take a scope
+ * cannot be: its static type changed in 2.0 (VarScope), so they live in Scopes, one source
+ * file per API line (src/rhino1, src/rhino2).
  */
 final class RhinoCompat {
     private RhinoCompat() {}
@@ -34,26 +34,6 @@ final class RhinoCompat {
             } else {
                 throw new IllegalStateException("no API to select the evaluation method on this Rhino");
             }
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /** A fresh top-level scope with the standard objects and no LiveConnect, whatever its static type. */
-    static ScriptableObject newTopLevel(Context cx) {
-        return (ScriptableObject) cx.initSafeStandardObjects(new TopLevel());
-    }
-
-    /**
-     * The object that top-level {@code this} and global declarations land on. The 2.0 line
-     * splits it from the scope ({@code TopLevel.getGlobalThis()}); earlier Rhinos use the
-     * scope itself.
-     */
-    static ScriptableObject globalThis(ScriptableObject scope) {
-        Method m = find(scope.getClass(), "getGlobalThis");
-        if (m == null) return scope;
-        try {
-            return (ScriptableObject) m.invoke(scope);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
