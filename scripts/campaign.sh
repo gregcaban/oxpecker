@@ -4,7 +4,9 @@
 #   scripts/campaign.sh start NAME HOURS [--fresh] [fuzz args]  build the harness jar, launch into runs/NAME;
 #                                                               seeded with the previous campaign's corpus
 #                                                               minimised (oxpecker cmin), or empty with --fresh
-#                                                               OXPECKER_RHINO=TARGET runs on that Rhino target
+#                                                               OXPECKER_RHINO=TARGET runs on that Rhino target;
+#                                                               OXPECKER_RHINO_BASELINE=TARGET also runs every program
+#                                                               there, a changed mode being a finding (fuzz --against)
 #   scripts/campaign.sh status NAME                             pid liveness, last progress lines, findings
 #   scripts/campaign.sh stop NAME                               stop the run
 #   scripts/campaign.sh extract NAME                            findings/hard.jsonl entries -> runs/NAME/unreduced/*.js
@@ -18,6 +20,7 @@ PIDFILE="$OUT/fuzz.pid"
 # The Rhino target (rhino-targets.toml) this process runs against, as oxpecker.targets.current().
 DEFAULT_TARGET="$(sed -n 's/^default = "\(.*\)"/\1/p' rhino-targets.toml)"
 TARGET="${OXPECKER_RHINO:-$DEFAULT_TARGET}"
+BASELINE="${OXPECKER_RHINO_BASELINE:-}"
 
 alive() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
 
@@ -42,10 +45,15 @@ start)
     else
         oxpecker build-harness "$TARGET" || exit 1
     fi
+    AGAINST=""
+    if [ -n "$BASELINE" ]; then
+        oxpecker build-harness "$BASELINE" || exit 1
+        AGAINST="--against $BASELINE"
+    fi
     mkdir -p "$OUT"
-    echo "$TARGET" > "$OUT/target.txt"
+    echo "$TARGET${BASELINE:+ against $BASELINE}" > "$OUT/target.txt"
     SECONDS_TOTAL=$(awk "BEGIN { printf \"%d\", $HOURS * 3600 }")
-    FUZZ="oxpecker fuzz -o $OUT/corpus --seconds $SECONDS_TOTAL --findings-dir $OUT/findings $*"
+    FUZZ="oxpecker fuzz -o $OUT/corpus --seconds $SECONDS_TOTAL --findings-dir $OUT/findings $AGAINST $*"
     if [ -n "$PREV" ]; then
         # The minimised corpus is kept next to the campaign it came from (corpus.min) and reused
         # while it is newer than that campaign's corpus; the new campaign gets a copy to grow.

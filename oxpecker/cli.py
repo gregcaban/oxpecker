@@ -237,8 +237,11 @@ def cmd_build_harness(args: argparse.Namespace) -> int:
 
 def cmd_xver(args: argparse.Namespace) -> int:
     """Runs files on several Rhino targets (default: every built one) and prints each one's verdict
-    per target and what changed between them, relative to the first target: fixed, new, changed."""
+    per target and what changed between them, relative to the first target: fixed, new, changed.
+    `version` is crossver's verdict against the first target: whether either mode's outcome
+    changed, which the per-target verdicts miss when both modes changed alike."""
     from . import targets
+    from .crossver import CrossRun, cross_verdict
     from .harness.client import HarnessClient
     from .harness.compare import compare_run
 
@@ -247,25 +250,29 @@ def cmd_xver(args: argparse.Namespace) -> int:
         print(f"need two built targets, have {names}: oxpecker build-harness NAME", file=sys.stderr)
         return 2
     paths = [q for p in args.paths for q in (sorted(Path(p).glob("*.js")) if Path(p).is_dir() else [Path(p)])]
-    verdicts: dict[str, dict[Path, Any]] = {}
+    runs: dict[str, dict[Path, Any]] = {}
     for name in names:
         with HarnessClient(quiet=True, target=name) as client:
-            verdicts[name] = {p: compare_run(client.run(p.read_text(encoding="utf-8"), source_name=p.name,
-                                                         language_version=args.language_version))
-                              for p in paths}
+            runs[name] = {p: client.run(p.read_text(encoding="utf-8"), source_name=p.name,
+                                        language_version=args.language_version) for p in paths}
+    verdicts = {n: {p: compare_run(r) for p, r in rs.items()} for n, rs in runs.items()}
     base = names[0]
+    versions = {n: {p: cross_verdict(CrossRun(base, n, runs[base][p], runs[n][p])) for p in paths} for n in names[1:]}
     width = max(len(p.name) for p in paths) if paths else 10
-    print(f"{'':{width}}  " + "  ".join(f"{n:10}" for n in names) + "  change")
+    print(f"{'':{width}}  " + "  ".join(f"{n:10}" for n in names) + "  " + "  ".join(f"{'version ' + n:16}" for n in names[1:]) + "  change")
     changes: Counter[str] = Counter()
     for p in paths:
         row = [verdicts[n][p] for n in names]
         change = ", ".join(_change(verdicts[base][p], verdicts[n][p], n) for n in names[1:]
                            if _change(verdicts[base][p], verdicts[n][p], n)) or "same"
         changes[change.split(" ", 1)[0]] += 1
-        print(f"{p.name:{width}}  " + "  ".join(f"{v.kind:10}" for v in row) + f"  {change}")
+        print(f"{p.name:{width}}  " + "  ".join(f"{v.kind:10}" for v in row) + "  "
+              + "  ".join(f"{versions[n][p].kind:16}" for n in names[1:]) + f"  {change}")
         if args.verbose:
             for n, v in zip(names, row):
                 print(f"{'':{width}}    {n}: {v.pretty()[:150]}")
+            for n in names[1:]:
+                print(f"{'':{width}}    version {n}: {versions[n][p].pretty()[:150]}")
         if args.headers or args.write_headers:
             src = p.read_text(encoding="utf-8")
             missing = [f"// oxpecker-expect[{n}]: {v.kind}" for n, v in zip(names, row)
@@ -493,17 +500,34 @@ def cmd_metrics(args: argparse.Namespace) -> int:
 
 
 def cmd_fuzz(args: argparse.Namespace) -> int:
-    from . import findings
+    import contextlib
+    import os
+
+    from . import crossver, findings, targets
+    if args.against:
+        # before the generation layer loads its capability table: it draws from what both Rhinos have
+        os.environ[crossver.BASELINE_ENV] = args.against
     from .fuzz import fuzz
     from .harness.client import HarnessClient
+    from .harness.compare import compare_run
     from .related import known_index
 
+    base = crossver.baseline()
+    if base and not targets.jar(base).exists():
+        print(f"no harness jar for the baseline {base}: oxpecker build-harness {base}", file=sys.stderr)
+        return 2
     options = _gen_options(args)
-    with HarnessClient(quiet=True, coverage=True) as client:
+    with HarnessClient(quiet=True, coverage=True) as client, contextlib.ExitStack() as stack:
         if not client.info().get("coverage"):
             print("coverage agent not attached: the harness build must include jacocoagent.jar", file=sys.stderr)
             return 2
-        index = known_index(client)
+        verdict = compare_run
+        if base:
+            client = stack.enter_context(crossver.CrossClient(client, base))
+            verdict = crossver.cross_verdict
+            if not args.quiet:
+                print(f"comparing Rhino {client.cand_target} with {base}: a changed mode is a finding", file=sys.stderr)
+        index = known_index(client, verdict=verdict)
         known = index.signatures if not args.ignore_known else set()
         summary = fuzz(corpus_dir=Path(args.corpus), options=options, iterations=args.iterations, seconds=args.seconds,
                        steps=args.steps, p_new=args.p_new, seed=args.seed, known=known, related_index=index,
@@ -511,7 +535,7 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                        shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
                        source_shrink_budget=args.source_shrink_budget,
                        language_version=args.language_version, client=client, quiet=args.quiet,
-                       max_depth=args.max_lineage_depth)
+                       max_depth=args.max_lineage_depth, verdict=verdict)
     print(json.dumps({k: v for k, v in summary.items() if k != "signatures"}, indent=1))
     if summary["signatures"]:
         print("hard signatures seen:")
@@ -588,6 +612,8 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("--compact-budget", type=int, default=0, help="runs spent shrinking each new corpus entry while it still reaches its probes (0 = off)")
     fz.add_argument("--source-shrink-budget", type=int, default=300, help="runs spent on statement-level shrinking of each finding after Hypothesis (0 = off)")
     fz.add_argument("--findings-dir", help="where findings are recorded (default tests/findings)")
+    fz.add_argument("--against", metavar="TARGET",
+                    help="also run every program on this Rhino target (OXPECKER_RHINO_BASELINE): a mode whose outcome changed is a finding")
     fz.add_argument("--ignore-known", action="store_true", help="shrink and record findings whose signature a regression already has")
     fz.add_argument("--family", action="append")
     fz.add_argument("--generator", action="append")

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .. import environment as probe
+from .. import targets
 from .types import (
     ANY,
     ARRAY,
@@ -244,6 +245,12 @@ def _load_table(path: Path = RHINO_TABLE_PATH) -> dict[str, Any]:
     table = probe.load(path)
     if table is None:
         raise RuntimeError(f"capability table missing: {path}; run `oxpecker probe --target {path.stem}`")
+    from ..crossver import baseline
+    if path == RHINO_TABLE_PATH and baseline():      # comparing two Rhinos: what both have
+        other = probe.load(targets.capabilities(baseline()))
+        if other is None:
+            raise RuntimeError(f"capability table missing for baseline {baseline()}; run `oxpecker probe --target {baseline()}`")
+        table = probe.intersect(table, other)
     return table
 
 

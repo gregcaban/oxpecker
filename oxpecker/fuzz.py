@@ -271,8 +271,9 @@ class Runner(Protocol):
     def __call__(self, lineage: Lineage, require: ProbeSet | None = None) -> Observation: ...
 
 
-def harness_runner(client, language_version: int = 200) -> Runner:
-    """Runs a lineage's final program in both Rhino modes, asking for new probe ids."""
+def harness_runner(client, language_version: int = 200, verdict: Callable[[Any], Verdict] = compare_run) -> Runner:
+    """Runs a lineage's final program in both Rhino modes, asking for new probe ids. `verdict`
+    judges the run: the mode comparison, or crossver.cross_verdict for a CrossClient's runs."""
     def run(lineage: Lineage, require: ProbeSet | None = None) -> Observation:
         res = client.run(lineage.source, language_version=language_version, seed=1,
                          coverage_bucket=lineage.template, coverage_new_ids=True, coverage_require=require)
@@ -283,7 +284,7 @@ def harness_runner(client, language_version: int = 200) -> Runner:
             new += o.newProbes or 0
             union(new_ids, o.newProbeIds or {})
             union(reached, o.requiredReached or {})
-        return Observation(compare_run(res), res, new, new_ids, reached,
+        return Observation(verdict(res), res, new, new_ids, reached,
                            ms=max((o.ms or 0 for o in res.results.values()), default=0),
                            timed_out=any(o.status in SLOW for o in res.results.values()))
     return run
@@ -417,12 +418,13 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          known: set[str] | None = None, related_index=None, findings_dir: Path = findings.DEFAULT_DIR, shrink_budget: int = 150,
          compact_budget: int = 0, source_shrink_budget: int = 300, language_version: int = 200,
          runner: Runner | None = None, client=None, quiet: bool = False,
-         max_depth: int = MAX_DEPTH) -> dict[str, Any]:
+         max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
     coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
     or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
     `related_index` (oxpecker.related.KnownIndex) labels each new finding with the regressions it
-    probably connects to. Returns the summary also written to `last-run.json`."""
+    probably connects to. `verdict` judges each run (crossver.cross_verdict with a CrossClient).
+    Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
     stats: Counter[str] = Counter()
@@ -439,7 +441,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if not client.info().get("coverage"):
                 client.stop()
                 raise RuntimeError("coverage agent not attached; the harness build must include jacocoagent.jar")
-        runner = harness_runner(client, language_version)
+        runner = harness_runner(client, language_version, verdict)
     if client is not None:
         client.coverage_checkpoint = str(corpus.exec)
         if corpus.exec.exists():
@@ -521,7 +523,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                         # then statement-level deletion on the lifted source, which gets much further
                         # than choice shrinking within a budget (proposal §3.7)
                         shrunk = shrink_lifted(client, small[0].source, rec_verdict.coarse_signature(),
-                                               language_version, source_shrink_budget)
+                                               language_version, source_shrink_budget, verdict)
                         if shrunk is not None:
                             record_as, rec_run, rec_verdict = shrunk
                     related = []
@@ -571,7 +573,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 rate = i / (last_report - t0)
                 print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
                       f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
-                                                                     if k in ("equal", "hard", "java-types", "soft", "rejected")),
+                                                                     if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
                       file=sys.stderr)
     finally:
         report: dict[str, Any] = {}
@@ -610,19 +612,20 @@ class Reproducer:
         return "\n".join(ln for ln in self.source.splitlines() if not ln.lstrip().startswith("__probe(")) + "\n"
 
 
-def shrink_lifted(client, source: str, coarse: str, language_version: int, budget: int):
+def shrink_lifted(client, source: str, coarse: str, language_version: int, budget: int,
+                  verdict: Callable[[Any], Verdict] = compare_run):
     """Statement-level delta debugging (`shrink.shrink_source`) while the coarse signature holds;
     returns (Reproducer, RunResult, Verdict) or None if nothing could go."""
     from .shrink import shrink_source
 
     def verdict_of(src: str):
-        return compare_run(client.run(src, language_version=language_version, seed=1))
+        return verdict(client.run(src, language_version=language_version, seed=1))
 
     small = shrink_source(source, lambda src: verdict_of(src).coarse_signature() == coarse, budget=budget)
     if small == source:
         return None
     run = client.run(small, language_version=language_version, seed=1)
-    v = compare_run(run)
+    v = verdict(run)
     if v.coarse_signature() != coarse:
         return None
     return Reproducer(small, "shrunk"), run, v

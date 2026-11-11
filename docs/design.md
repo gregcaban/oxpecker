@@ -203,6 +203,35 @@ against the first: `fixed on master`, `new on master`, `changed`. `--write-heade
 test suite runs the reproducers on every built target, and CI runs the whole suite on master as
 well, without blocking a merge.
 
+**The last release as an oracle** (`oxpecker/crossver.py`). `oxpecker fuzz --against 1.9.2`, under
+`OXPECKER_RHINO=master` (or `OXPECKER_RHINO_BASELINE=1.9.2 scripts/campaign.sh start ...`), runs
+every program on both targets, in both modes each, the baseline's JVM in parallel with the
+candidate's. Coverage comes from the candidate only. A mode whose outcome changed between the two
+is a hard finding even when the candidate's modes agree with each other: a regression that breaks
+both modes alike is invisible to the mode oracle. Its reason leads with `1.9.2->master MODE: `,
+and so does its coarse signature, so the shrinkers hold it as its own bug class. When the
+baseline's modes disagreed and the candidate's changed mode now does what the other one did, the
+change is a fix (`fixed`): counted in the stats, not recorded. The candidate's own mode comparison
+still runs, so bugs both versions share are reported as before. The generators draw from what both
+capability tables have (`environment.intersect`), so a builtin only master has (`Float16Array`,
+the leaked `ArrayIterator`) is not a difference. A finding's reproducer expects each target's own
+two-mode verdict (`oxpecker-expect[1.9.2]`, `[master]`) and replays with
+`oxpecker xver --targets 1.9.2,master`, whose `version` column shows this same verdict.
+
+Most of what the first two 15-minute campaigns (2026-11-11) reported were changes master made on
+purpose. Two kinds are handled differently:
+- **Implementation-defined or cosmetic:** rewritten the same way on both sides before comparing
+  (`crossver.VERSION_CANON`). These are function source text, the newline 1.9.2 puts after a
+  native function's source, `4.9e-324` vs `5e-324`, and the order of `Math`'s or `JSON`'s own
+  properties.
+- **Behaviour master fixed:** kept as reproducers in `tests/version-changes/`, with a note on the
+  spec step. The loop counts their signatures as known, and a test fails when one stops
+  differing. These are `arr.length = undefined` (RangeError), regexp instances' own flag
+  properties, and a `let` loop's binding seen after resuming a continuation.
+
+Without a spec oracle the loop cannot tell a fix from a regression: every changed mode needs
+reading against the spec before it is reported.
+
 ## 5. Comparison rules (`compare.py`)
 
 | situation | verdict |

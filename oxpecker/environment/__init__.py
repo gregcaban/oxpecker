@@ -89,6 +89,22 @@ def load(path: Path = CACHE) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def intersect(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """What both tables have: the builtins, members and syntax a program may use when it runs on
+    both Rhinos (crossver), so a builtin only one of them has does not show as a difference."""
+    def members(x: dict[str, list[str]], y: dict[str, list[str]]) -> dict[str, list[str]]:
+        return {k: [m for m in v if m in set(y[k])] for k, v in x.items() if k in y}
+    return {**a,
+            "rhino": f"{a.get('rhino')} & {b.get('rhino')}",
+            "constructors": {k: v for k, v in a.get("constructors", {}).items() if b.get("constructors", {}).get(k) == v},
+            "globals": {k: v for k, v in a.get("globals", {}).items() if b.get("globals", {}).get(k) == v},
+            "protos": members(a.get("protos", {}), b.get("protos", {})),
+            "statics": members(a.get("statics", {}), b.get("statics", {})),
+            "syntax": {k: {**v, "supported": bool(v.get("supported") and b.get("syntax", {}).get(k, {}).get("supported"))}
+                       for k, v in a.get("syntax", {}).items()},
+            "unreadable": sorted(set(a.get("unreadable", [])) | set(b.get("unreadable", [])))}
+
+
 def method_table(table: dict[str, Any]) -> dict[str, list[tuple[str, int]]]:
     """{constructor name: [(method, arity)]} for prototype methods, excluding accessors/symbols."""
     out: dict[str, list[tuple[str, int]]] = {}

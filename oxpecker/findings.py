@@ -31,7 +31,9 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
            related: list[Any] | None = None) -> Path | None:
     """Appends to <kind>.jsonl once per signature. With `reproducer`, (over)writes
     <kind>-<sig>.js with the probed source (trace findings need the probes) and returns its path.
-    `related` (oxpecker.related.Related) names the regressions the finding probably connects to."""
+    `related` (oxpecker.related.Related) names the regressions the finding probably connects to.
+    A crossver.CrossRun records both targets, and its reproducer expects each one's own verdict."""
+    base = getattr(run, "base_target", None)             # comparing two Rhinos (crossver)
     out_dir.mkdir(parents=True, exist_ok=True)
     log = out_dir / f"{verdict.kind}.jsonl"
     sig = verdict.signature()
@@ -40,7 +42,7 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
         seen = {json.loads(ln)["signature"] for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()}
     if sig not in seen:
         with log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"signature": sig, "rhino": targets.current(), "verdict": verdict.to_json(), "source": prog.source,
+            f.write(json.dumps({"signature": sig, "rhino": targets.current(), **({"baseline": base} if base else {}), "verdict": verdict.to_json(), "source": prog.source,
                                 "template": prog.template, "choices": choices,
                                 "related": [{"regression": r.name, "score": r.score, "shared": list(r.shared)}
                                             for r in related or ()],
@@ -48,9 +50,17 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
     if not reproducer:
         return None
     path = out_dir / f"{verdict.kind}-{short_sig(verdict)}.js"
-    body = f"// oxpecker-expect: {verdict.kind}\n// " + verdict.pretty().replace("\n", " ") + "\n"
+    if base:
+        body = "".join(f"// oxpecker-expect[{t}]: {k}\n" for t, k in run.expectations().items())
+    else:
+        body = f"// oxpecker-expect: {verdict.kind}\n"
+    body += "// " + verdict.pretty().replace("\n", " ") + "\n"
     body += "// " + json.dumps({m: {"status": o.status, "value": o.value} for m, o in run.results.items()}) + "\n"
-    body += f"// Found on Rhino target {targets.current()} (oxpecker xver FILE: the other targets)\n"
+    if base:
+        body += f"// Found comparing Rhino {base} with {run.cand_target} (oxpecker xver --targets {base},{run.cand_target} FILE)\n"
+        replay_cmd = f"oxpecker xver --targets {base},{run.cand_target}"
+    else:
+        body += f"// Found on Rhino target {targets.current()} (oxpecker xver FILE: the other targets)\n"
     for r in related or ():
         body += f"// Related: {r}\n"
     body += f"// Replay: {replay_cmd} {path}\n" + prog.source

@@ -47,7 +47,9 @@ That jar runs the default Rhino target, 1.9.2. Other targets are named in `rhino
 (master at a pinned commit); `oxpecker build-harness master` builds Rhino and its harness, and
 `OXPECKER_RHINO=master` runs anything against it (`OXPECKER_RHINO=master pytest`,
 `OXPECKER_RHINO=master scripts/campaign.sh start ...`). `oxpecker xver FILES` compares the verdicts
-on every built target.
+on every built target. To fuzz master with 1.9.2 as the oracle, where any mode whose outcome
+changed is a finding: `OXPECKER_RHINO=master OXPECKER_RHINO_BASELINE=1.9.2 scripts/campaign.sh start NAME HOURS`
+(or `oxpecker fuzz --against 1.9.2`).
 
 ## First run
 
