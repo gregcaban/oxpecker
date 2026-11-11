@@ -1,0 +1,13 @@
+# The Rhino versions oxpecker runs against. `oxpecker build-harness NAME` builds
+# harness-java/build/libs/harness-NAME.jar; OXPECKER_RHINO=NAME selects it everywhere: bin/harness,
+# the capability table (oxpecker/environment/capabilities/NAME.json), the regression expectations
+# (`// oxpecker-expect[NAME]: kind`). Unset, it is `default`, whose jar is the plain fatJar.
+default = "1.9.2"
+
+[targets."1.9.2"]
+maven = "1.9.2"                                       # org.mozilla:rhino from Maven Central
+
+[targets.master]
+git = "https://github.com/mozilla/rhino.git"
+# Pinned: bump it deliberately, then `oxpecker xver tests/regressions` to re-measure what changed.
+ref = "4c3d79b3dbfde083582f1bfe1e4c9e028f5f7ef8"     # 2026-11-08

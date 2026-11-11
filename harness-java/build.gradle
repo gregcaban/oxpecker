@@ -50,9 +50,8 @@ application {
 
 // Single runnable jar: java -jar build/libs/oxpecker-harness-all.jar --replay case.js
 tasks.register('fatJar', Jar) {
-    archiveBaseName = 'oxpecker-harness'
-    archiveClassifier = 'all'
-    archiveVersion = ''
+    // -PharnessJar=harness-NAME.jar: one jar per Rhino target side by side (oxpecker build-harness)
+    archiveFileName = project.findProperty('harnessJar') ?: 'oxpecker-harness-all.jar'
     manifest { attributes 'Main-Class': 'dev.oxpecker.harness.Harness', 'Rhino-Version': rhinoVersion }
     from sourceSets.main.output
     dependsOn configurations.runtimeClasspath

@@ -67,8 +67,10 @@ class HarnessClient:
     """One long-lived JVM. Not thread-safe; use one client per worker."""
 
     def __init__(self, harness_bin: os.PathLike[str] | str = HARNESS_BIN, *, recycle_every: int = 5000,
-                 hard_timeout_s: float = 60.0, quiet: bool = False, coverage: bool = False):
+                 hard_timeout_s: float = 60.0, quiet: bool = False, coverage: bool = False,
+                 target: str | None = None):
         self.harness_bin = str(harness_bin)
+        self.target = target                  # a Rhino target (rhino-targets.toml); None: OXPECKER_RHINO or the default
         self.coverage = coverage
         self.recycle_every = recycle_every
         self.hard_timeout_s = hard_timeout_s
@@ -85,6 +87,8 @@ class HarnessClient:
         if not os.path.exists(self.harness_bin):
             raise HarnessError(f"harness launcher not found: {self.harness_bin} (build with: cd harness-java && ./gradlew fatJar)")
         env = dict(os.environ)
+        if self.target:
+            env["OXPECKER_RHINO"] = self.target
         if self.coverage:
             env["OXPECKER_COVERAGE"] = "1"
             self.recycle_every = max(self.recycle_every, 10 ** 9)   # coverage lives in the JVM: never recycle
