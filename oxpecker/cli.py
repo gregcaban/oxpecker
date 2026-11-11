@@ -3,7 +3,9 @@
   oxpecker run out/ tests/regressions/ run existing .js files through the harness
   oxpecker diff case.js                where the two modes' outcomes first differ, per field
   oxpecker corpus test262|rhino-jstests|rhino-mozilla [--filter PREFIX] [--limit N]   replay a corpus
-  oxpecker probe                       refresh the Rhino capability table
+  oxpecker probe [--target NAME]       refresh the Rhino capability table (per target)
+  oxpecker build-harness [NAME...]     build the harness jar of Rhino targets (rhino-targets.toml)
+  oxpecker xver tests/regressions/     each file's verdict on every built Rhino target, and what changed
 
   oxpecker gen -o out/ -n 50 [--seed 1]  write N generated programs (.js, .plain.js, .il) to a directory
   oxpecker gen -o out/ -n 50 --run     ... and run them through the harness
@@ -220,15 +222,88 @@ def _show_diff(label: str, x: str, y: str, modes: tuple[str, ...], ctx: int = 60
     print(f"  {modes[1]:12} …{y[lo:i]}▶{y[i:i + ctx]}…")
 
 
+# ----------------------------------------------------------------------------- Rhino targets
+def cmd_build_harness(args: argparse.Namespace) -> int:
+    """Builds the harness jar of each named target (all of them if none is named)."""
+    from . import targets
+
+    names = args.names or list(targets.registry()[1])
+    for name in names:
+        t = targets.get(name)
+        print(f"{name}: Rhino {t.version}, API line {t.api}")
+        print(f"  -> {targets.build(name)}")
+    return 0
+
+
+def cmd_xver(args: argparse.Namespace) -> int:
+    """Runs files on several Rhino targets (default: every built one) and prints each one's verdict
+    per target and what changed between them, relative to the first target: fixed, new, changed."""
+    from . import targets
+    from .harness.client import HarnessClient
+    from .harness.compare import compare_run
+
+    names = args.targets.split(",") if args.targets else targets.built()
+    if len(names) < 2:
+        print(f"need two built targets, have {names}: oxpecker build-harness NAME", file=sys.stderr)
+        return 2
+    paths = [q for p in args.paths for q in (sorted(Path(p).glob("*.js")) if Path(p).is_dir() else [Path(p)])]
+    verdicts: dict[str, dict[Path, Any]] = {}
+    for name in names:
+        with HarnessClient(quiet=True, target=name) as client:
+            verdicts[name] = {p: compare_run(client.run(p.read_text(encoding="utf-8"), source_name=p.name,
+                                                         language_version=args.language_version))
+                              for p in paths}
+    base = names[0]
+    width = max(len(p.name) for p in paths) if paths else 10
+    print(f"{'':{width}}  " + "  ".join(f"{n:10}" for n in names) + "  change")
+    changes: Counter[str] = Counter()
+    for p in paths:
+        row = [verdicts[n][p] for n in names]
+        change = ", ".join(_change(verdicts[base][p], verdicts[n][p], n) for n in names[1:]
+                           if _change(verdicts[base][p], verdicts[n][p], n)) or "same"
+        changes[change.split(" ", 1)[0]] += 1
+        print(f"{p.name:{width}}  " + "  ".join(f"{v.kind:10}" for v in row) + f"  {change}")
+        if args.verbose:
+            for n, v in zip(names, row):
+                print(f"{'':{width}}    {n}: {v.pretty()[:150]}")
+        if args.headers or args.write_headers:
+            src = p.read_text(encoding="utf-8")
+            missing = [f"// oxpecker-expect[{n}]: {v.kind}" for n, v in zip(names, row)
+                       if targets.expected_kind(src, n) != v.kind]
+            for line in missing:
+                print(f"{'':{width}}    {line}{'  (written)' if args.write_headers else ''}")
+            if args.write_headers and missing:
+                p.write_text("".join(f"{line}\n" for line in missing) + src, encoding="utf-8")
+    print(f"\n{len(paths)} files: " + ", ".join(f"{k} {c}" for k, c in changes.most_common()))
+    return 0
+
+
+def _change(a, b, name: str) -> str:
+    """How a verdict on another target differs from the first target's: fixed, new, changed, or ''."""
+    from .harness.compare import EQUAL, HARD
+
+    if a.kind == b.kind and (a.kind != HARD or a.coarse_signature() == b.coarse_signature()):
+        return ""
+    if a.kind == HARD and b.kind == EQUAL:
+        return f"fixed on {name}"
+    if a.kind == EQUAL and b.kind == HARD:
+        return f"new on {name}"
+    return f"changed on {name} ({a.kind} -> {b.kind})" if a.kind != b.kind else f"changed on {name} (another finding)"
+
+
 # ----------------------------------------------------------------------------- probe
 def cmd_probe(args: argparse.Namespace) -> int:
     """Refreshes the Rhino capability table (builtins, per-snippet syntax support)."""
     from . import environment
     from .harness.client import HarnessClient
 
-    with HarnessClient(quiet=True) as client:
+    from . import targets
+
+    name = args.target or targets.current()
+    path = targets.capabilities(name)
+    with HarnessClient(quiet=True, target=name) as client:
         table = environment.run_probe(client, language_version=args.language_version)
-    environment.save(table)
+    environment.save(table, path)
     protos = environment.method_table(table)
     statics = environment.static_table(table)
     print(f"rhino {table.get('rhino')}, language version {args.language_version}")
@@ -239,7 +314,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     for k, v in sorted(table["syntax"].items()):
         if v["verdict"] not in ("equal",) or "crash" in (v.get("interpreted"), v.get("compiled")):
             print(f"  !! {k:22} interpreted={v.get('interpreted')} compiled={v.get('compiled')}  {v['detail'][:120]}")
-    print(f"written to {environment.CACHE}")
+    print(f"written to {path}")
     return 0
 
 
@@ -575,6 +650,22 @@ def main(argv: list[str] | None = None) -> int:
     pr = sub.add_parser("probe", help="probe Rhino's builtins/syntax and refresh the environment model")
     pr.add_argument("--language-version", type=int, default=250)
     pr.set_defaults(fn=cmd_probe)
+    pr.add_argument("--target", help="Rhino target to probe (default: OXPECKER_RHINO or the registry's default)")
+
+    bh = sub.add_parser("build-harness", help="build the harness jar of Rhino targets (rhino-targets.toml)")
+    bh.add_argument("names", nargs="*", help="targets to build (default: all)")
+    bh.set_defaults(fn=cmd_build_harness)
+
+    xv = sub.add_parser("xver", help="each file's verdict on several Rhino targets, and what changed")
+    xv.add_argument("paths", nargs="+", help=".js files or directories")
+    xv.add_argument("--targets", help="comma-separated, the first is the baseline (default: every built target)")
+    xv.add_argument("--language-version", type=int, default=200)
+    xv.add_argument("--headers", action="store_true",
+                    help="print the // oxpecker-expect[NAME]: lines a file needs to match what it does now")
+    xv.add_argument("--write-headers", action="store_true",
+                    help="... and prepend them to the file (after a deliberate target bump or a new target)")
+    xv.add_argument("-v", "--verbose", action="store_true", help="print each verdict")
+    xv.set_defaults(fn=cmd_xver)
 
     args = ap.parse_args(argv)
     return args.fn(args)

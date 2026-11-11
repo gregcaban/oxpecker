@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import targets
 from .harness.client import RunResult
 from .harness.compare import Verdict
 
@@ -39,7 +40,7 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
         seen = {json.loads(ln)["signature"] for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()}
     if sig not in seen:
         with log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"signature": sig, "verdict": verdict.to_json(), "source": prog.source,
+            f.write(json.dumps({"signature": sig, "rhino": targets.current(), "verdict": verdict.to_json(), "source": prog.source,
                                 "template": prog.template, "choices": choices,
                                 "related": [{"regression": r.name, "score": r.score, "shared": list(r.shared)}
                                             for r in related or ()],
@@ -49,6 +50,7 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
     path = out_dir / f"{verdict.kind}-{short_sig(verdict)}.js"
     body = f"// oxpecker-expect: {verdict.kind}\n// " + verdict.pretty().replace("\n", " ") + "\n"
     body += "// " + json.dumps({m: {"status": o.status, "value": o.value} for m, o in run.results.items()}) + "\n"
+    body += f"// Found on Rhino target {targets.current()} (oxpecker xver FILE: the other targets)\n"
     for r in related or ():
         body += f"// Related: {r}\n"
     body += f"// Replay: {replay_cmd} {path}\n" + prog.source

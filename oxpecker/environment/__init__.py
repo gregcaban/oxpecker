@@ -1,7 +1,8 @@
-"""Environment model: what builtins this Rhino build exposes (constructors, prototype methods,
+"""Environment model: what builtins a Rhino build exposes (constructors, prototype methods,
 namespaces, syntax), discovered by running probe.js through the harness once and cached in
-rhino-capabilities.json next to this file. The API generators draw from it, so a Rhino upgrade
-only needs `oxpecker probe` to refresh the model."""
+capabilities/TARGET.json next to this file, one table per Rhino target (rhino-targets.toml). The
+API generators draw from the current target's (OXPECKER_RHINO), so a new target or a Rhino upgrade
+only needs `oxpecker probe --target NAME` to write its model."""
 
 from __future__ import annotations
 
@@ -9,9 +10,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .. import targets
+
 HERE = Path(__file__).resolve().parent
 PROBE_JS = HERE / "probe.js"
-CACHE = HERE / "rhino-capabilities.json"
+CACHE = targets.capabilities(targets.current())   # the current target's table
 
 # Builtins the generators should not poke at: host/harness objects, and things whose calls
 # are either meaningless or nondeterministic here.
