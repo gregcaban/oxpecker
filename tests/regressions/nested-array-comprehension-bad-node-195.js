@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: equal
 // Rhino b95f75d: a JS 1.7 array comprehension nested as the element expression of another
 // array comprehension (`[[... for (x in ..)] for (y in ..)]`) parses fine, but the inner
 // comprehension's block-scope cleanup leaves a RESETVAR node (Token 195) in a position the

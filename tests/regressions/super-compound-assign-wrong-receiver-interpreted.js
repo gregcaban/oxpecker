@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino 1.9.2 and master b95f75d: a compound assignment to a super property in an object-literal
 // method reads the property with the wrong receiver in the interpreted mode: the getter runs
 // with `this` = the prototype instead of the instance. The compiled mode passes the instance,

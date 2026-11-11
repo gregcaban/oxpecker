@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino b95f75d: a short-circuiting logical assignment to a super property (`||=`, `??=`) in an
 // object-literal method writes the value it read back through the `super` reference in the
 // interpreted mode. With `__proto__` (an accessor on Object.prototype) that write is observable:

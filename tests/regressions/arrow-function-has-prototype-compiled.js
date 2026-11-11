@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino b95f75d: arrow functions get a `prototype` property in compiled mode. Per spec (and in
 // the interpreter) arrows have none.
 //   interpreted: "undefined"      compiled: "object"

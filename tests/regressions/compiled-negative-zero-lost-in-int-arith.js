@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino b95f75d: compiled mode loses negative zero. A top-level variable holding a small
 // integer is kept as an int by the optimizer, and `int * 0` cannot represent IEEE -0.
 //   interpreted: -0 (spec)      compiled: 0        (Object.is(n * 0, -0): true vs false)

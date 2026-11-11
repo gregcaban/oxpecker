@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino b95f75d: at script top level the compiled mode computes `x * 0` as +0 for a negative
 // `x` held in a variable; the interpreter gives -0 (IEEE 754, and what the spec requires).
 // Inside a function (`function f(p) { var y = p * 0; ... }`) both modes give -0, and a literal

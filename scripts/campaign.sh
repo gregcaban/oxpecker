@@ -4,6 +4,7 @@
 #   scripts/campaign.sh start NAME HOURS [--fresh] [fuzz args]  build the harness jar, launch into runs/NAME;
 #                                                               seeded with the previous campaign's corpus
 #                                                               minimised (oxpecker cmin), or empty with --fresh
+#                                                               OXPECKER_RHINO=TARGET runs on that Rhino target
 #   scripts/campaign.sh status NAME                             pid liveness, last progress lines, findings
 #   scripts/campaign.sh stop NAME                               stop the run
 #   scripts/campaign.sh extract NAME                            findings/hard.jsonl entries -> runs/NAME/unreduced/*.js
@@ -11,9 +12,12 @@
 set -u
 cd "$(dirname "$0")/.."
 CMD="${1:-}"; NAME="${2:-}"
-[ -n "$CMD" ] && [ -n "$NAME" ] || { sed -n '3,10p' "$0"; exit 2; }
+[ -n "$CMD" ] && [ -n "$NAME" ] || { sed -n '3,11p' "$0"; exit 2; }
 OUT="runs/$NAME"
 PIDFILE="$OUT/fuzz.pid"
+# The Rhino target (rhino-targets.toml) this process runs against, as oxpecker.targets.current().
+DEFAULT_TARGET="$(sed -n 's/^default = "\(.*\)"/\1/p' rhino-targets.toml)"
+TARGET="${OXPECKER_RHINO:-$DEFAULT_TARGET}"
 
 alive() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
 
@@ -32,15 +36,22 @@ start)
             echo "previous campaign $PREV is still running; stop it first or use --fresh"; exit 1
         fi
     fi
-    (cd harness-java && ./gradlew -q fatJar) || exit 1
-    mkdir -p "$OUT"
     . .venv/bin/activate
+    if [ "$TARGET" = "$DEFAULT_TARGET" ] && [ -z "${OXPECKER_RHINO:-}" ]; then
+        (cd harness-java && ./gradlew -q fatJar) || exit 1
+    else
+        oxpecker build-harness "$TARGET" || exit 1
+    fi
+    mkdir -p "$OUT"
+    echo "$TARGET" > "$OUT/target.txt"
     SECONDS_TOTAL=$(awk "BEGIN { printf \"%d\", $HOURS * 3600 }")
     FUZZ="oxpecker fuzz -o $OUT/corpus --seconds $SECONDS_TOTAL --findings-dir $OUT/findings $*"
     if [ -n "$PREV" ]; then
         # The minimised corpus is kept next to the campaign it came from (corpus.min) and reused
         # while it is newer than that campaign's corpus; the new campaign gets a copy to grow.
+        # Coverage is per Rhino build, so a corpus is minimised again for another target, kept apart.
         MIN="runs/$PREV/corpus.min"
+        [ "$TARGET" = "$DEFAULT_TARGET" ] || MIN="runs/$PREV/corpus.min.$TARGET"
         if [ -f "$MIN/corpus.jsonl" ] && [ "$MIN/corpus.jsonl" -nt "runs/$PREV/corpus/corpus.jsonl" ]; then
             SEED="cp -R $MIN $OUT/corpus"
             echo "seeded from $MIN (minimised earlier)" > "$OUT/seed.txt"
@@ -63,7 +74,7 @@ start)
     ;;
 status)
     [ -d "$OUT" ] || { echo "no run $OUT"; exit 1; }
-    if alive; then echo "running (pid $(cat "$PIDFILE")), started $(cat "$OUT/started.txt" 2>/dev/null), $(cat "$OUT/seed.txt" 2>/dev/null)"
+    if alive; then echo "running (pid $(cat "$PIDFILE")) on Rhino $(cat "$OUT/target.txt" 2>/dev/null || echo "$DEFAULT_TARGET"), started $(cat "$OUT/started.txt" 2>/dev/null), $(cat "$OUT/seed.txt" 2>/dev/null)"
     else echo "not running"; fi
     tail -n "${3:-5}" "$OUT/fuzz.log"
     echo "findings recorded:"

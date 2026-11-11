@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: equal
 // Rhino b95f75d: object-rest destructuring (`var { [sym]: _, ...rest } = proxy`) over a Proxy
 // whose `ownKeys` trap returns a Symbol copies data properties via CopyDataProperties, which must
 // call the `getOwnPropertyDescriptor` trap once per *non-excluded* key:

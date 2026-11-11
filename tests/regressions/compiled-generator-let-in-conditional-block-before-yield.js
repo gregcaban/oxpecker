@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino 1.9.2: a generator function whose body declares a `let` inside a block that may or may
 // not run (an `if` with a non-constant condition, or a `while` body) and then yields after the
 // block fails to compile: the bytecode generator throws IllegalStateException "bad local
