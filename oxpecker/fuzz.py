@@ -418,12 +418,15 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          known: set[str] | None = None, related_index=None, findings_dir: Path = findings.DEFAULT_DIR, shrink_budget: int = 150,
          compact_budget: int = 0, source_shrink_budget: int = 300, language_version: int = 200,
          runner: Runner | None = None, client=None, quiet: bool = False,
-         max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run) -> dict[str, Any]:
+         max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run,
+         judge_findings: bool = False) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
     coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
     or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
     `related_index` (oxpecker.related.KnownIndex) labels each new finding with the regressions it
     probably connects to. `verdict` judges each run (crossver.cross_verdict with a CrossClient).
+    With `judge_findings`, each new finding, once shrunk, runs on engine262 too (oxpecker.judge),
+    which says which side agrees with the spec.
     Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
@@ -530,8 +533,14 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                     if related_index is not None:
                         from .related import Fingerprint
                         related = related_index.related(Fingerprint.of("finding", record_as.source, rec_run, rec_verdict))
+                    judgement = None
+                    if judge_findings:
+                        from . import judge
+                        judgement = judge.judge(record_as.source, rec_run)
+                        stats[f"judged-{judgement.label}"] += 1
                     path = findings.record(record_as, rec_run, rec_verdict, out_dir=findings_dir,
-                                           reproducer=True, replay_cmd="oxpecker diff", related=related)
+                                           reproducer=True, replay_cmd="oxpecker diff", related=related,
+                                           judgement=judgement)
                     if parent is not None:
                         parent.found.append(sig)
                     if not quiet:
@@ -540,6 +549,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                               f"{len(small[0].code)} instructions, {len(lineage.steps)} -> {len(small[0].steps)} steps "
                               f"in {shrinker.calls} runs; source shrink {len(small[0].source.splitlines())} -> "
                               f"{len(record_as.source.splitlines())} lines)", file=sys.stderr)
+                        if judgement is not None:
+                            print(f"          engine262: {judgement.label}: {judgement.summary}", file=sys.stderr)
                         for r in related:
                             print(f"          related: {r}", file=sys.stderr)
             if obs.new_probes > 0 and obs.timed_out:

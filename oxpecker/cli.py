@@ -298,6 +298,43 @@ def _change(a, b, name: str) -> str:
     return f"changed on {name} ({a.kind} -> {b.kind})" if a.kind != b.kind else f"changed on {name} (another finding)"
 
 
+def cmd_judge(args: argparse.Namespace) -> int:
+    """Runs files on Rhino (both modes; with --against on both targets) and on engine262, and
+    says which side agrees with the spec (oxpecker/judge.py)."""
+    import contextlib
+
+    from . import judge
+    from .crossver import CrossClient, cross_verdict
+    from .harness.client import HarnessClient
+    from .harness.compare import compare_run
+
+    if not judge.available():
+        print("engine262 is not installed: npm install --prefix judge (needs node)", file=sys.stderr)
+        return 2
+    paths = [q for p in args.paths for q in (sorted(Path(p).glob("*.js")) if Path(p).is_dir() else [Path(p)])]
+    labels: Counter[str] = Counter()
+    with HarnessClient(quiet=True) as client, contextlib.ExitStack() as stack:
+        verdict = compare_run
+        if args.against:
+            client = stack.enter_context(CrossClient(client, args.against))
+            verdict = cross_verdict
+        width = max((len(p.name) for p in paths), default=10)
+        for p in paths:
+            src = p.read_text(encoding="utf-8")
+            run = client.run(src, source_name=p.name, language_version=args.language_version, strict=args.strict)
+            v = verdict(run)
+            j = judge.judge(src, run, strict=args.strict)
+            labels[j.label] += 1
+            print(f"{p.name:{width}}  {v.kind:10}  {j.label:16}  {j.summary}")
+            if args.verbose and j.spec is not None:
+                s = j.spec
+                print(f"{'':{width}}    engine262: {s.status} value={s.value!r}" + (f" thrown={s.thrown}" if s.thrown else ""))
+                for tr in s.trace:
+                    print(f"{'':{width}}      trace: {tr[:200]}")
+    print(f"\n{len(paths)} files: " + ", ".join(f"{k} {c}" for k, c in labels.most_common()))
+    return 0
+
+
 # ----------------------------------------------------------------------------- probe
 def cmd_probe(args: argparse.Namespace) -> int:
     """Refreshes the Rhino capability table (builtins, per-snippet syntax support)."""
@@ -516,6 +553,11 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
     if base and not targets.jar(base).exists():
         print(f"no harness jar for the baseline {base}: oxpecker build-harness {base}", file=sys.stderr)
         return 2
+    from . import judge
+    judge_findings = judge.available() if args.judge is None else args.judge
+    if judge_findings and not judge.available():
+        print("--judge: engine262 is not installed (npm install --prefix judge)", file=sys.stderr)
+        return 2
     options = _gen_options(args)
     with HarnessClient(quiet=True, coverage=True) as client, contextlib.ExitStack() as stack:
         if not client.info().get("coverage"):
@@ -535,7 +577,7 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                        shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
                        source_shrink_budget=args.source_shrink_budget,
                        language_version=args.language_version, client=client, quiet=args.quiet,
-                       max_depth=args.max_lineage_depth, verdict=verdict)
+                       max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings)
     print(json.dumps({k: v for k, v in summary.items() if k != "signatures"}, indent=1))
     if summary["signatures"]:
         print("hard signatures seen:")
@@ -614,6 +656,8 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("--findings-dir", help="where findings are recorded (default tests/findings)")
     fz.add_argument("--against", metavar="TARGET",
                     help="also run every program on this Rhino target (OXPECKER_RHINO_BASELINE): a mode whose outcome changed is a finding")
+    fz.add_argument("--judge", action=argparse.BooleanOptionalAction, default=None,
+                    help="judge each new finding on engine262 (default: when judge/ is installed)")
     fz.add_argument("--ignore-known", action="store_true", help="shrink and record findings whose signature a regression already has")
     fz.add_argument("--family", action="append")
     fz.add_argument("--generator", action="append")
@@ -681,6 +725,14 @@ def main(argv: list[str] | None = None) -> int:
     bh = sub.add_parser("build-harness", help="build the harness jar of Rhino targets (rhino-targets.toml)")
     bh.add_argument("names", nargs="*", help="targets to build (default: all)")
     bh.set_defaults(fn=cmd_build_harness)
+
+    jd = sub.add_parser("judge", help="which side of a finding agrees with the spec: Rhino vs engine262")
+    jd.add_argument("paths", nargs="+")
+    jd.add_argument("--against", metavar="TARGET", help="judge a cross-version difference against this Rhino target")
+    jd.add_argument("--strict", action="store_true")
+    jd.add_argument("--language-version", type=int, default=200)
+    jd.add_argument("-v", "--verbose", action="store_true", help="print engine262's outcome")
+    jd.set_defaults(fn=cmd_judge)
 
     xv = sub.add_parser("xver", help="each file's verdict on several Rhino targets, and what changed")
     xv.add_argument("paths", nargs="+", help=".js files or directories")

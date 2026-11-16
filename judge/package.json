@@ -1,0 +1,9 @@
+{
+  "name": "oxpecker-judge",
+  "private": true,
+  "description": "engine262 as a by-the-spec oracle for oxpecker findings (oxpecker/judge.py)",
+  "type": "module",
+  "dependencies": {
+    "@engine262/engine262": "0.0.1-67a6b6157fd4c08bb5c5295e613ff582fd9ac488"
+  }
+}

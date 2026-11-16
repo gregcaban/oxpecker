@@ -229,8 +229,45 @@ purpose. Two kinds are handled differently:
   differing. These are `arr.length = undefined` (RangeError), regexp instances' own flag
   properties, and a `let` loop's binding seen after resuming a continuation.
 
-Without a spec oracle the loop cannot tell a fix from a regression: every changed mode needs
-reading against the spec before it is reported.
+engine262 (§4.11) now tells a fix from a regression for the programs it can run.
+
+### 4.11 engine262 as the judge of findings (`oxpecker/judge.py`, `judge/host.mjs`)
+
+Two Rhino modes, or two Rhino versions, that disagree say there is a bug, not which side has it.
+engine262 implements ECMA-262 step by step in JavaScript. Every new finding, once shrunk, runs on
+it once more, so the spec has a vote. Only findings are judged: engine262 is orders of magnitude
+slower than Rhino. `judge/host.mjs` (Node, engine262 pinned in `judge/package.json`,
+`npm install --prefix judge`) runs a case as the Java host does. It loads the same `canon.js`
+and `prelude.js` inside engine262 and defines `__probe` and `print` over them, and it writes one
+outcome in the harness's JSON shape, so outcomes compare like two modes.
+
+**Judged only where the sides differ.** Rhino differs from the spec in places every program
+touches: an own `arity` and `arguments` on every function, decompiled source text. Comparing
+whole outcomes would call every mode wrong. Each outcome is split into observations: status
+with error name, thrown value, completion value, each probe argument, each output line. The
+judge looks only at those where the two sides of the finding differ, and asks which side
+engine262 matches. When neither matches exactly, it takes the side whose differing text, with
+its surroundings, engine262's output contains. When the modes agree with each other (both crash
+alike), only their status is judged.
+
+Labels:
+- `compiled-wrong`, `interpreted-wrong`, `all-wrong`.
+- For a cross-version difference (§4.10): `regression` (1.9.2 agreed with the spec, master
+  does not) or `fix`.
+- `rhino-extension`: engine262 rejects the syntax, or throws a ReferenceError for a Rhino-only
+  global such as `CallSite`.
+- `inconclusive`, and `not-judged` for programs that use Java (`J`), continuations or
+  LiveConnect.
+
+The label goes into the finding's jsonl record (`judge`), its reproducer header
+(`// engine262: ...`) and the loop's stats (`judged-LABEL`). `oxpecker fuzz` judges when
+`judge/` is installed (`--no-judge` turns it off). `oxpecker judge FILE... [--against 1.9.2]`
+judges files.
+
+Measured on 2026-11-13, over the 46 regressions and seeds on 1.9.2: 16 compiled-wrong,
+6 interpreted-wrong, 12 all-wrong, 5 Rhino extensions, 3 inconclusive, 4 not judged. Each
+agrees with the hand triage of the findings-status note. On master against 1.9.2, the four
+judgeable version changes of §4.10 are all `fix`.
 
 ## 5. Comparison rules (`compare.py`)
 

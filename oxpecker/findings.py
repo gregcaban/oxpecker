@@ -28,11 +28,12 @@ def known_signatures(client: Any, regressions: Path = DEFAULT_DIR.parent / "regr
 
 def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAULT_DIR,
            reproducer: bool = False, choices: list[int] | None = None, replay_cmd: str = "oxpecker diff",
-           related: list[Any] | None = None) -> Path | None:
+           related: list[Any] | None = None, judgement: Any | None = None) -> Path | None:
     """Appends to <kind>.jsonl once per signature. With `reproducer`, (over)writes
     <kind>-<sig>.js with the probed source (trace findings need the probes) and returns its path.
     `related` (oxpecker.related.Related) names the regressions the finding probably connects to.
-    A crossver.CrossRun records both targets, and its reproducer expects each one's own verdict."""
+    A crossver.CrossRun records both targets, and its reproducer expects each one's own verdict.
+    `judgement` (oxpecker.judge.Judgement) says which side engine262 agrees with."""
     base = getattr(run, "base_target", None)             # comparing two Rhinos (crossver)
     out_dir.mkdir(parents=True, exist_ok=True)
     log = out_dir / f"{verdict.kind}.jsonl"
@@ -46,6 +47,7 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
                                 "template": prog.template, "choices": choices,
                                 "related": [{"regression": r.name, "score": r.score, "shared": list(r.shared)}
                                             for r in related or ()],
+                                **({"judge": judgement.to_json()} if judgement is not None else {}),
                                 "results": run.to_json()["results"]}) + "\n")
     if not reproducer:
         return None
@@ -61,6 +63,8 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
         replay_cmd = f"oxpecker xver --targets {base},{run.cand_target}"
     else:
         body += f"// Found on Rhino target {targets.current()} (oxpecker xver FILE: the other targets)\n"
+    if judgement is not None:
+        body += f"// engine262: {judgement.label}: {judgement.summary}\n"
     for r in related or ():
         body += f"// Related: {r}\n"
     body += f"// Replay: {replay_cmd} {path}\n" + prog.source

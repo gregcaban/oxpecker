@@ -51,6 +51,9 @@ on every built target. To fuzz master with 1.9.2 as the oracle, where any mode w
 changed is a finding: `OXPECKER_RHINO=master OXPECKER_RHINO_BASELINE=1.9.2 scripts/campaign.sh start NAME HOURS`
 (or `oxpecker fuzz --against 1.9.2`).
 
+With Node 22, `npm install --prefix judge` installs engine262, which judges each new finding:
+it says which mode (or version) agrees with the spec. `oxpecker judge FILE...` judges files.
+
 ## First run
 
 Generate a handful of programs and read them:

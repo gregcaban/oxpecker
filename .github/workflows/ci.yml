@@ -38,6 +38,12 @@ jobs:
       - name: Install oxpecker
         run: pip install -e '.[dev]'
 
+      - name: Node 22 and engine262 (the judge of findings)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --prefix judge
+
       - name: Run the tests
         env:
           OXPECKER_JAVA: ${{ env.JAVA_HOME }}/bin/java

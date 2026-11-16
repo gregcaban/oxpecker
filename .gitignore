@@ -21,3 +21,4 @@ tests/findings/
 *.log
 *.result.json
 docs/local/
+judge/node_modules/
