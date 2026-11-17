@@ -24,6 +24,7 @@ From a shell:
 from __future__ import annotations
 
 import json
+import os
 import random
 import sys
 import time
@@ -32,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, Sequence
 
 from hypothesis import HealthCheck, Phase, given, settings
 from hypothesis.control import BuildContext, current_build_context
@@ -41,7 +42,7 @@ from hypothesis.errors import HypothesisException, StopTest, UnsatisfiedAssumpti
 from hypothesis.internal.conjecture.data import ConjectureData
 
 import oxpecker.il.templates  # noqa: F401  (registration)
-from . import coverage, findings
+from . import findings
 from .harness.compare import HARD, JAVA_TYPES, SOFT, Verdict, compare_run
 from .il.mutate import Lineage, evolved
 from .il.options import GenOptions
@@ -161,6 +162,7 @@ class Entry:
     added_at: float = field(default_factory=time.time)
     cap: int | None = None            # the lineage's step cap (G49); None in corpora from before it
     ms: int = 0                       # run time when found (slowest mode); 0 in corpora from before it
+    origin: str | None = None         # "WORKER:ID" when taken from another worker's corpus (Peer)
 
     def to_json(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -260,6 +262,84 @@ class LineageCache:
         if lineage is not None:
             self.put(entry.id, lineage)
         return lineage
+
+
+# ------------------------------------------------------------------------------- other workers
+class Peer:
+    """Another worker's corpus, read as it grows (`oxpecker fuzz --workers N`, oxpecker.workers).
+    Workers share nothing they write: each has its own corpus directory, coverage store and JVM,
+    and takes the others' entries by reading the new lines of their `corpus.jsonl`, running each
+    in its own JVM and keeping the ones that reach probes new to it (AFL's queue sync). An
+    entry's choices draw the same lineage in every worker: same strategies, same capability table.
+
+    `skip_bytes` is the seed corpus every worker started from a copy of (its entries, with ids
+    below `seed_entries`, are in this worker's corpus under the same ids). Entries the peer
+    itself took from a third worker are passed over: this worker reads that one directly."""
+
+    def __init__(self, dir: Path, skip_bytes: int = 0, seed_entries: int = 0, capacity: int = 2048):
+        self.dir = Path(dir)
+        self.name = self.dir.name
+        self.file = self.dir / "corpus.jsonl"
+        self.offset = skip_bytes
+        self.seed_entries = seed_entries
+        self.capacity = capacity
+        self._built: OrderedDict[int, tuple[Lineage, Choices]] = OrderedDict()   # peer entry id -> its lineage
+        self.local: dict[int, int] = {}                                           # peer entry id -> the id it got here
+
+    def new_entries(self) -> list[Entry]:
+        """The peer's own entries appended since the last call: whole lines only, a line the peer
+        is still writing is left for the next call."""
+        if not self.file.exists():
+            return []
+        with self.file.open("rb") as f:
+            f.seek(self.offset)
+            data = f.read()
+        end = data.rfind(b"\n") + 1
+        self.offset += end
+        entries = []
+        for ln in data[:end].decode("utf-8").splitlines():
+            if ln.strip():
+                d = json.loads(ln)
+                e = Entry(**{k: d[k] for k in Entry.__dataclass_fields__ if k in d})
+                if e.origin is None:
+                    entries.append(e)
+        return entries
+
+    def lineage(self, e: Entry, options: GenOptions, steps: int,
+                own: Callable[[int], tuple[Lineage, Choices] | None]) -> Lineage | None:
+        """The lineage a peer's entry draws: its own round on top of its parent's lineage when
+        that is at hand (a peer entry built here earlier, or through `own` a seed entry), else
+        replayed from its choices."""
+        choices = decode(e.choices)
+        if choices is None:
+            return None
+        cap = e.cap if e.cap is not None else steps
+        lineage = None
+        if e.parent is not None:
+            parent = own(e.parent) if e.parent < self.seed_entries else self._built.get(e.parent)
+            if parent is not None:
+                lineage = continue_lineage(parent[0], parent[1], choices, options, cap)
+        if lineage is None:
+            lineage = replay(choices, options, cap)
+        if lineage is not None:
+            self._built[e.id] = (lineage, choices)
+            while len(self._built) > self.capacity:
+                self._built.popitem(last=False)
+        return lineage
+
+
+def claim(claims: Path, signature: str, owner: str = "") -> bool:
+    """True for the first worker to ask about a signature: that one shrinks and records the
+    finding, the others only count it. Creating the file is the claim (O_EXCL: one winner)."""
+    import hashlib
+    claims.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(claims / hashlib.sha1(signature.encode()).hexdigest()[:20], os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(f"{owner}\n{signature[:500]}\n")
+    return True
 
 
 # ------------------------------------------------------------------------------- running one lineage
@@ -427,7 +507,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          compact_budget: int = 0, source_shrink_budget: int = 300, language_version: int = 200,
          runner: Runner | None = None, client=None, quiet: bool = False,
          max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run,
-         judge_findings: bool = False, pipeline: bool = True) -> dict[str, Any]:
+         judge_findings: bool = False, pipeline: bool = True, peers: Sequence[Peer] = (),
+         sync_seconds: float = 30.0, claims: Path | None = None) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
     coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
     or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
@@ -436,6 +517,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     With `judge_findings`, each new finding, once shrunk, runs on engine262 too (oxpecker.judge),
     which says which side agrees with the spec. `pipeline` draws the next program while the
     current one runs (see the loop).
+    `peers` are the other workers' corpora (Peer): every `sync_seconds` their new entries are run
+    here and the ones reaching probes new to this worker join its corpus. With `claims` (a
+    directory the workers share) a new finding is shrunk and recorded by the worker that claims
+    its signature first.
     Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
@@ -460,11 +545,6 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             covered = client.coverage_load(str(corpus.exec))
             if not quiet:
                 print(f"resumed: {len(corpus.entries)} corpus entries, {covered} probes already covered", file=sys.stderr)
-
-    curve: list[dict[str, Any]] = []           # coverage over time (coverage.CURVE), this run's rows
-    last_curve = t0
-    if client is not None:
-        curve.append(coverage.append_row(corpus.dir, t0, 0, len(corpus.entries), client.coverage_count(), 0, start=True))
 
     lineages = LineageCache()
     lineages.fit(len(corpus.entries))
@@ -510,7 +590,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     def process(job: tuple[Entry | None, Lineage | None, Lineage, Choices], obs: Observation) -> None:
         """What a run showed: the verdict counted, a finding shrunk and recorded, new probes into
         the corpus."""
-        nonlocal weights, last_report, last_curve
+        nonlocal weights, last_report
         parent, base_lineage, lineage, choices = job
         v = obs.verdict
         stats[v.kind] += 1
@@ -522,6 +602,9 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         elif v.kind == HARD:
             sig = v.signature()
             sig_counts[sig] += 1
+            if sig not in known and claims is not None and not claim(claims, sig, corpus.dir.name):
+                known.add(sig)                       # another worker has it
+                stats["findings-claimed-elsewhere"] += 1
             if sig in known:
                 findings.record(lineage, obs.run, v, out_dir=findings_dir)
             else:
@@ -598,17 +681,62 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 # the checkpoint a restarted JVM resumes from (HarnessClient.coverage_checkpoint):
                 # only runs with new probes move the frontier, and each of those is added here
                 client.coverage_save(str(corpus.exec))
-        if client is not None and time.time() - last_curve >= coverage.CURVE_EVERY_S:
-            last_curve = time.time()
-            curve.append(coverage.append_row(corpus.dir, t0, i, len(corpus.entries), client.coverage_count(),
-                                             stats["new-findings"]))
-        if not quiet and time.time() - last_report > 10:
+        if time.time() - last_report > 10:
             last_report = time.time()
             rate = i / (last_report - t0)
-            print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
-                  f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
-                                                                 if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
-                  file=sys.stderr)
+            write_status(last_report)
+            if not quiet:
+                print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
+                      f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
+                                                                     if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
+                      file=sys.stderr)
+
+    def write_status(now: float) -> None:
+        """`status.json`, every ten seconds: what a supervisor of several workers adds up."""
+        tmp = corpus.dir / "status.json.tmp"
+        tmp.write_text(json.dumps({"runs": i, "seconds": now - t0, "corpus": len(corpus.entries), "stats": dict(stats)}),
+                       encoding="utf-8")
+        os.replace(tmp, corpus.dir / "status.json")
+
+    def own_lineage(entry_id: int) -> tuple[Lineage, Choices] | None:
+        e = corpus.by_id.get(entry_id)
+        choices = decode(e.choices) if e is not None else None
+        lineage = lineages.get(e, options, steps, corpus.by_id) if choices else None
+        return (lineage, choices) if lineage is not None else None
+
+    def sync() -> None:
+        """Run the other workers' new entries here; keep the ones that reach probes new to this
+        worker. Their verdicts are not looked at: the worker that found an entry judged it."""
+        nonlocal weights
+        kept = 0
+        for peer in peers:
+            for e in peer.new_entries():
+                stats["sync-seen"] += 1
+                lineage = peer.lineage(e, options, steps, own_lineage)
+                if lineage is None:
+                    stats["sync-undecodable"] += 1
+                    continue
+                obs = runner(lineage)
+                if obs.new_probes <= 0 or obs.timed_out:
+                    continue
+                if e.parent is not None and e.parent < peer.seed_entries:
+                    parent_id = e.parent
+                else:
+                    parent_id = peer.local.get(e.parent) if e.parent is not None else None
+                new_entry = Entry(corpus.next_id(), e.choices, lineage.template, [s.name for s in lineage.steps],
+                                  obs.new_probes, obs.new_probe_ids, parent_id, len(lineage.code), cap=lineage.cap,
+                                  ms=obs.ms, origin=f"{peer.name}:{e.id}")
+                corpus.add(new_entry)
+                peer.local[e.id] = new_entry.id
+                if len(corpus.entries) >= lineages.capacity:
+                    lineages.fit(len(corpus.entries))
+                lineages.put(new_entry.id, lineage)
+                weights = None
+                kept += 1
+                stats["sync-kept"] += 1
+                stats["new-probes"] += obs.new_probes
+        if kept and client is not None:
+            client.coverage_save(str(corpus.exec))          # once for the round: 30 ms a save
 
     # With `pipeline`, a program runs on a thread (which waits on the JVM's pipe) while the next
     # one is drawn here: an iteration costs the longer of drawing and running instead of their
@@ -617,6 +745,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     # parent is picked from the corpus as it was before the run in flight.
     pool = ThreadPoolExecutor(1, thread_name_prefix="oxpecker-run") if pipeline else None
     pending: tuple[Any, Any] | None = None
+    next_sync = time.time() + sync_seconds
     i = 0
     try:
         while True:
@@ -629,6 +758,9 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if pending is not None:
                 process(pending[0], pending[1].result())
                 pending = None
+            if peers and time.time() >= next_sync:           # nothing in flight here: the JVM is free
+                sync()
+                next_sync = time.time() + sync_seconds
             if job is None:
                 continue
             if pool is not None:
@@ -638,13 +770,14 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         if pending is not None:
             process(pending[0], pending[1].result())
             pending = None
+        if peers:
+            sync()
     finally:
         if pool is not None:
             pool.shutdown(wait=True)             # no request in flight when the coverage is saved
         report: dict[str, Any] = {}
         if client is not None:
-            covered = client.coverage_save(str(corpus.exec))
-            curve.append(coverage.append_row(corpus.dir, t0, i, len(corpus.entries), covered, stats["new-findings"]))
+            client.coverage_save(str(corpus.exec))
             try:
                 report = client.coverage_report()
             except Exception:
@@ -662,8 +795,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                "signatures": dict(sig_counts), "coveredProbes": report.get("coveredProbes"),
                "totalProbes": report.get("totalProbes"), "steps": steps, "max_depth": max_depth, "p_new": p_new,
                "max_entry_depth": max((len(e.steps) for e in corpus.entries), default=0),
-               "mutators": mutator_stats,
-               "coverage": coverage.summarize(report, curve) if report else None}
+               "mutators": mutator_stats}
     (corpus.dir / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     return summary
 

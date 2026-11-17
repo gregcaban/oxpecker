@@ -335,49 +335,6 @@ def cmd_judge(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_coverage(args: argparse.Namespace) -> int:
-    """How much of Rhino a fuzzing run covered and whether it had plateaued: from
-    RUN/corpus/last-run.json and the curve RUN/corpus/coverage.jsonl (a live run's too), or for
-    a run from before the curve, an approximate curve from RUN/fuzz.log."""
-    from . import coverage
-
-    run = Path(args.run)
-    corpus = run / "corpus" if (run / "corpus").is_dir() else run
-    rows, approximate = coverage.read_curve(corpus), False
-    last = corpus / "last-run.json"
-    summary = json.loads(last.read_text(encoding="utf-8")) if last.exists() else {}
-    if not rows and (run / "fuzz.log").exists():
-        rows, approximate = coverage.curve_from_log(run / "fuzz.log"), True
-        if rows and summary.get("coveredProbes") and rows[-1]["covered"] > summary["coveredProbes"]:
-            print("fuzz.log's progress lines predate 2026-11 (probes counted per template bucket): no curve", file=sys.stderr)
-            rows = []
-    finished = summary.get("coverage")
-    if finished and not approximate and rows and rows[-1].get("time", 0) <= last.stat().st_mtime + 1:
-        cov = finished                                   # the run is over: its own report
-    else:
-        cov = {"curve": coverage.saturation(rows, summary.get("coveredProbes") if approximate else None)}
-    exec_file = corpus / "coverage.exec"
-    if not cov.get("lines", [0, 0])[1] and exec_file.exists() and args.analyse:
-        # a run from before the summary, or a live one: JaCoCo's analysis of its checkpoint, on the
-        # Rhino target it ran on
-        from .harness.client import HarnessClient
-        target = (run / "target.txt").read_text().split()[0] if (run / "target.txt").exists() else None
-        with HarnessClient(quiet=True, coverage=True, target=target) as client:
-            client.coverage_load(str(exec_file))
-            cov = {**coverage.jar_coverage(client.coverage_report()), "curve": cov.get("curve")}
-        print(f"(analysed {exec_file} on Rhino {target or 'default'})", file=sys.stderr)
-    if not rows and not cov.get("lines", [0, 0])[1]:
-        if summary.get("coveredProbes"):
-            print(f"covered probes: {summary['coveredProbes']} of {summary.get('totalProbes')} in the classes loaded "
-                  f"(no curve or JaCoCo analysis recorded for this run)")
-            return 0
-        print(f"no coverage recorded under {run}", file=sys.stderr)
-        return 1
-    print(coverage.format_summary(cov, rows if args.curve else None, packages=args.packages, approximate=approximate,
-                                  missed=args.missed))
-    return 0
-
-
 # ----------------------------------------------------------------------------- probe
 def cmd_probe(args: argparse.Namespace) -> int:
     """Refreshes the Rhino capability table (builtins, per-snippet syntax support)."""
@@ -592,6 +549,20 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
     from .harness.compare import compare_run
     from .related import known_index
 
+    corpus_dir = Path(args.corpus)
+    findings_dir = Path(args.findings_dir) if args.findings_dir else findings.DEFAULT_DIR
+    seed, peers, claims = args.seed, (), None
+    if args.worker_index is not None:
+        # one of `--workers N`: its own corpus under CORPUS/wK, the others' corpora read as peers
+        from . import workers
+        corpus_dir, peers = workers.prepare(Path(args.corpus), args.worker_index, args.workers)
+        claims = Path(args.corpus) / "claims"
+        findings_dir = findings_dir / f"w{args.worker_index}"
+        seed = seed + args.worker_index if seed is not None else None
+    elif args.workers > 1:
+        from . import workers
+        return workers.supervise(Path(args.corpus), args.workers, args.argv[args.argv.index("fuzz") + 1:], quiet=args.quiet)
+
     base = crossver.baseline()
     if base and not targets.jar(base).exists():
         print(f"no harness jar for the baseline {base}: oxpecker build-harness {base}", file=sys.stderr)
@@ -614,17 +585,20 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                 print(f"comparing Rhino {client.cand_target} with {base}: a changed mode is a finding", file=sys.stderr)
         index = known_index(client, verdict=verdict)
         known = index.signatures if not args.ignore_known else set()
-        summary = fuzz(corpus_dir=Path(args.corpus), options=options, iterations=args.iterations, seconds=args.seconds,
-                       steps=args.steps, p_new=args.p_new, seed=args.seed, known=known, related_index=index,
-                       findings_dir=Path(args.findings_dir) if args.findings_dir else findings.DEFAULT_DIR,
+        summary = fuzz(corpus_dir=corpus_dir, options=options, iterations=args.iterations, seconds=args.seconds,
+                       steps=args.steps, p_new=args.p_new, seed=seed, known=known, related_index=index,
+                       findings_dir=findings_dir,
                        shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
                        source_shrink_budget=args.source_shrink_budget,
                        language_version=args.language_version, client=client, quiet=args.quiet,
-                       max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings)
-    print(json.dumps({k: v for k, v in summary.items() if k not in ("signatures", "coverage")}, indent=1))
-    if summary.get("coverage"):
-        from . import coverage
-        print(coverage.format_summary(summary["coverage"]))
+                       max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings,
+                       pipeline=args.pipeline, peers=peers, sync_seconds=args.sync_seconds, claims=claims)
+    # CPU spent, now that the JVMs have exited and been waited for: this process (drawing, lifting,
+    # comparing) and its children (the harness JVMs, with their compiler and collector threads)
+    t = os.times()
+    summary["cpu_seconds"] = {"python": round(t.user + t.system, 1), "harness": round(t.children_user + t.children_system, 1)}
+    (corpus_dir / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    print(json.dumps({k: v for k, v in summary.items() if k != "signatures"}, indent=1))
     if summary["signatures"]:
         print("hard signatures seen:")
         for sig, n in sorted(summary["signatures"].items(), key=lambda kv: -kv[1]):
@@ -713,6 +687,13 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("--strict", action="store_true")
     fz.add_argument("--language-version", type=int, default=200)
     fz.add_argument("-q", "--quiet", action="store_true")
+    fz.add_argument("--workers", type=int, default=1, metavar="N",
+                    help="N loops side by side, each its own process, JVM and corpus (CORPUS/wK), taking each other's "
+                         "corpus entries as they appear; merged into CORPUS at the end (oxpecker.workers)")
+    fz.add_argument("--sync-seconds", type=float, default=30.0, help="with --workers: how often a worker reads the others' new entries")
+    fz.add_argument("--pipeline", action=argparse.BooleanOptionalAction, default=True,
+                    help="draw the next program while the current one runs (default: on)")
+    fz.add_argument("--worker-index", type=int, help=argparse.SUPPRESS)       # set by --workers for each of its processes
     fz.set_defaults(fn=cmd_fuzz)
 
     sh = sub.add_parser("shrink", help="statement-level shrinking of a reproducer while its coarse verdict holds")
@@ -772,15 +753,6 @@ def main(argv: list[str] | None = None) -> int:
     bh.add_argument("names", nargs="*", help="targets to build (default: all)")
     bh.set_defaults(fn=cmd_build_harness)
 
-    cv = sub.add_parser("coverage", help="how much of Rhino a fuzzing run covered, and whether it had plateaued")
-    cv.add_argument("run", help="a run directory (runs/NAME) or a corpus directory")
-    cv.add_argument("--no-curve", dest="curve", action="store_false", help="do not print the curve")
-    cv.add_argument("--packages", type=int, default=8, help="packages to list, largest first")
-    cv.add_argument("--missed", type=int, default=15, help="classes with the most lines never run to list")
-    cv.add_argument("--no-analyse", dest="analyse", action="store_false",
-                    help="do not start a harness to analyse coverage.exec when the run recorded no line/branch counts")
-    cv.set_defaults(fn=cmd_coverage)
-
     jd = sub.add_parser("judge", help="which side of a finding agrees with the spec: Rhino vs engine262")
     jd.add_argument("paths", nargs="+")
     jd.add_argument("--against", metavar="TARGET", help="judge a cross-version difference against this Rhino target")
@@ -801,6 +773,7 @@ def main(argv: list[str] | None = None) -> int:
     xv.set_defaults(fn=cmd_xver)
 
     args = ap.parse_args(argv)
+    args.argv = list(sys.argv[1:] if argv is None else argv)      # what `fuzz --workers` passes on to its workers
     return args.fn(args)
 
 

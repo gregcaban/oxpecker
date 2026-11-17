@@ -334,6 +334,52 @@ def cmd_harness(args) -> None:
     (out / "harness.json").write_text(json.dumps(report, indent=1))
 
 
+# ------------------------------------------------------------------------------- JVM options
+JVM_OPTIONS = (
+    "",
+    "-XX:+UseSerialGC",
+    "-XX:+UseSerialGC -XX:CICompilerCount=2",
+    "-XX:+UseSerialGC -XX:TieredStopAtLevel=1",
+    "-XX:+UseParallelGC -XX:ParallelGCThreads=2 -XX:CICompilerCount=2",
+)
+
+
+def cmd_jvm(args) -> None:
+    """What the harness JVM costs in CPU beyond running the cases: its compiler and collector
+    threads. Per option set (JAVA_TOOL_OPTIONS), the programs replayed `--passes` times with
+    coverage on: programs/s on the last pass, and the JVM's CPU seconds over all of them."""
+    out = Path(args.out)
+    programs = json.loads((out / "programs.json").read_text())
+    report = {}
+    print(f"\n== JVM options: {args.passes} passes over {len(programs)} programs, coverage on; CPU is the JVM's, all passes")
+    for opts in (args.options or JVM_OPTIONS):
+        if opts:
+            os.environ["JAVA_TOOL_OPTIONS"] = opts
+        else:
+            os.environ.pop("JAVA_TOOL_OPTIONS", None)
+        before = os.times()
+        started = time.perf_counter()
+        with hc.HarnessClient(quiet=True, coverage=True) as client:
+            client.info()
+            for n in range(args.passes):
+                pass_started = time.perf_counter()
+                rhino = 0.0
+                for case in programs:
+                    res = client.run(case["source"], seed=1, coverage_bucket=case["template"], coverage_new_ids=True)
+                    rhino += sum(o.ms or 0 for o in res.results.values()) / 1000.0
+                last = time.perf_counter() - pass_started
+        wall = time.perf_counter() - started
+        after = os.times()                                   # the JVM has exited and been waited for
+        cpu = (after.children_user + after.children_system) - (before.children_user + before.children_system)
+        runs = args.passes * len(programs)
+        report[opts or "(default)"] = {"last_pass_per_s": len(programs) / last, "wall": wall, "jvm_cpu": cpu,
+                                       "cpu_ms_per_program": 1000 * cpu / runs, "cores": cpu / wall}
+        print(f"{opts or '(default)':66} {len(programs) / last:6.1f}/s last pass  wall {wall:6.1f} s  JVM CPU {cpu:6.1f} s "
+              f"= {cpu / wall:4.2f} cores, {1000 * cpu / runs:5.1f} CPU-ms per program")
+    os.environ.pop("JAVA_TOOL_OPTIONS", None)
+    (out / "jvm.json").write_text(json.dumps(report, indent=1))
+
+
 # ------------------------------------------------------------------------------- reading a JFR profile
 JFR_PHASES = (          # first match wins, looked for anywhere in the sample's stack
     ("coverage drain (JaCoCo getExecutionData + diff)", ("harness.Coverage.", "org.jacoco.")),
@@ -398,6 +444,11 @@ def main() -> None:
     h.add_argument("--passes", type=int, default=3)
     h.add_argument("--jfr", action="store_true")
     h.set_defaults(fn=cmd_harness)
+    v = sub.add_parser("jvm")
+    v.add_argument("out")
+    v.add_argument("--passes", type=int, default=6)
+    v.add_argument("--options", action="append", help="a JAVA_TOOL_OPTIONS string to measure (repeatable; default: a fixed set)")
+    v.set_defaults(fn=cmd_jvm)
     j = sub.add_parser("jfr")
     j.add_argument("file")
     j.set_defaults(fn=cmd_jfr)
