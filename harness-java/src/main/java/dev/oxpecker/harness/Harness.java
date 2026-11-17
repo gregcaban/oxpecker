@@ -59,6 +59,7 @@ public final class Harness {
         m.put("harness", "0.1.0");
         m.put("modes", List.of(Mode.INTERPRETED.wire, Mode.COMPILED.wire, Mode.DEBUGGER.wire));
         m.put("coverage", new Coverage().enabled());
+        m.put("canon", Host.CANON_MODE.name().toLowerCase());
         return m;
     }
 

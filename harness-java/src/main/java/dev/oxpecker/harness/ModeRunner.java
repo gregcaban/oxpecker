@@ -39,7 +39,9 @@ final class ModeRunner {
         long start = System.nanoTime();
         t.start();
         try {
-            t.join(req.wallMs() + WATCHDOG_GRACE_MS);
+            // the grace is no longer than the limit itself: a short limit (the fuzz loop's) is
+            // not followed by three seconds of waiting for a thread that will not come back
+            t.join(req.wallMs() + Math.min(WATCHDOG_GRACE_MS, req.wallMs()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

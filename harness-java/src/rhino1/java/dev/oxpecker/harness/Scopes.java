@@ -47,6 +47,30 @@ final class Scopes {
         return cx.executeScriptWithContinuations(script, (Scriptable) scope);
     }
 
+    /**
+     * Calls with an arbitrary JS value as {@code this}: a Scriptable as is, undefined as
+     * undefined, a primitive boxed as a non-strict call would.
+     */
+    static Object callThis(Callable f, Context cx, Object scope, Object thisObj, Object[] args) {
+        Scriptable t;
+        if (thisObj instanceof Scriptable s) t = s;
+        else if (thisObj == null || thisObj == org.mozilla.javascript.Undefined.instance) t = org.mozilla.javascript.Undefined.SCRIPTABLE_UNDEFINED;
+        else t = org.mozilla.javascript.ScriptRuntime.toObject(cx, (Scriptable) scope, thisObj);
+        return f.call(cx, (Scriptable) scope, t, args);
+    }
+
+    /** The value a JS {@code catch (e)} binds for this exception (the interpreter's own conversion). */
+    static Object catchValue(RuntimeException e, Context cx, Object scope) {
+        if (e instanceof org.mozilla.javascript.JavaScriptException jse) return jse.getValue();
+        Scriptable cs = org.mozilla.javascript.ScriptRuntime.newCatchScope(e, null, "e", cx, (Scriptable) scope);
+        return ScriptableObject.getProperty(cs, "e");
+    }
+
+    /** A fresh plain object inheriting from the scope's Object.prototype. */
+    static Scriptable newObject(Context cx, Object scope) {
+        return cx.newObject((Scriptable) scope);
+    }
+
     static Object resumeContinuation(Context cx, Object continuation, Object scope, Object result) {
         return cx.resumeContinuation(continuation, (Scriptable) scope, result);
     }

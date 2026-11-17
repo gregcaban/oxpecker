@@ -25,15 +25,16 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
 import random
 import sys
 import time
-from collections import Counter, OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from collections import Counter, OrderedDict, deque
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
-from typing import Any, Callable, Protocol, Sequence
+from typing import Any, Callable, Protocol
 
 from hypothesis import HealthCheck, Phase, given, settings
 from hypothesis.control import BuildContext, current_build_context
@@ -52,7 +53,11 @@ ProbeSet = dict[str, list[int]]
 Choices = tuple[Any, ...]
 MAX_DEPTH = 20            # safety cap on a lineage's depth across extension rounds (G49): the choice
                           # sequence grows by a few hundred bytes per step against Hypothesis's 8 KiB
-DATABASE_KEY = b"oxpecker.fuzz.lineage"      # the lineage test's database key for the shrink runs
+WALL_MS = 1500            # a mode's time limit in the loop. A program takes 10 ms at the median and 100 at
+                          # the 99th percentile; the 0.1 % that ran to the general 5 s limit and the 3 s
+                          # watchdog after it took 29 % of a run's time, each holding up the only JVM
+CHECKPOINT_SECONDS = 20.0 # the coverage store is saved for a restarted JVM at most this often
+DATABASE_KEY = b"oxpecker.fuzz.lineage"     # the lineage test's database key for the shrink runs
 SECONDARY_KEY = DATABASE_KEY + b".secondary"   # where the failing choices go: an example under the
                                                 # primary key counts as already shrunk (engine.py, the
                                                 # "reused previously shrunk" fast path); fuzz_one_input
@@ -162,7 +167,6 @@ class Entry:
     added_at: float = field(default_factory=time.time)
     cap: int | None = None            # the lineage's step cap (G49); None in corpora from before it
     ms: int = 0                       # run time when found (slowest mode); 0 in corpora from before it
-    origin: str | None = None         # "WORKER:ID" when taken from another worker's corpus (Peer)
 
     def to_json(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -220,6 +224,9 @@ class LineageCache:
         """Room for a corpus of `entries` and the same again as it grows."""
         self.capacity = max(self.capacity, 2 * entries)
 
+    def has(self, entry_id: int) -> bool:
+        return entry_id in self._lineages
+
     def put(self, entry_id: int, lineage: Lineage) -> None:
         self._lineages[entry_id] = lineage
         self._lineages.move_to_end(entry_id)
@@ -264,82 +271,107 @@ class LineageCache:
         return lineage
 
 
-# ------------------------------------------------------------------------------- other workers
-class Peer:
-    """Another worker's corpus, read as it grows (`oxpecker fuzz --workers N`, oxpecker.workers).
-    Workers share nothing they write: each has its own corpus directory, coverage store and JVM,
-    and takes the others' entries by reading the new lines of their `corpus.jsonl`, running each
-    in its own JVM and keeping the ones that reach probes new to it (AFL's queue sync). An
-    entry's choices draw the same lineage in every worker: same strategies, same capability table.
+# ------------------------------------------------------------------------------- generator processes
+@dataclass
+class StepName:
+    name: str
 
-    `skip_bytes` is the seed corpus every worker started from a copy of (its entries, with ids
-    below `seed_entries`, are in this worker's corpus under the same ids). Entries the peer
-    itself took from a third worker are passed over: this worker reads that one directly."""
 
-    def __init__(self, dir: Path, skip_bytes: int = 0, seed_entries: int = 0, capacity: int = 2048):
-        self.dir = Path(dir)
-        self.name = self.dir.name
-        self.file = self.dir / "corpus.jsonl"
-        self.offset = skip_bytes
-        self.seed_entries = seed_entries
-        self.capacity = capacity
-        self._built: OrderedDict[int, tuple[Lineage, Choices]] = OrderedDict()   # peer entry id -> its lineage
-        self.local: dict[int, int] = {}                                           # peer entry id -> the id it got here
+@dataclass
+class Drawn:
+    """A program drawn in a generator process (`fuzz(generators=N)`), as the loop needs it: what
+    to run and what to record, without the lineage (which stays in the process that drew it; a
+    lineage does not pickle, and the loop only needs one to extend it, which the generators do)."""
+    choices: str                       # `encode(choices)`
+    source: str
+    template: str
+    steps: list[StepName]
+    instructions: int
+    cap: int
+    extended: bool                     # drawn from the parent asked for (else a fresh lineage)
+    counts: dict[str, int]             # the loop's counters for this draw: extended, fresh, ...
+    attempted: dict[str, int]          # mutation steps tried in this draw, per mutator
+    rejected: dict[str, int]
+    lineage: bytes = b""               # the lineage pickled: the loop keeps it, unopened, for an entry that
+                                       # joins the corpus and hands it to the process asked to extend that entry
 
-    def new_entries(self) -> list[Entry]:
-        """The peer's own entries appended since the last call: whole lines only, a line the peer
-        is still writing is left for the next call."""
-        if not self.file.exists():
-            return []
-        with self.file.open("rb") as f:
-            f.seek(self.offset)
+    @property
+    def code(self) -> tuple[Any, ...]:
+        """The instructions, replayed: only a finding's report and the tests' runner ask."""
+        lineage = replay(decode(self.choices), _GEN["options"], self.cap) if _GEN else None
+        return lineage.code if lineage is not None else ()
+
+
+PICKLED_LINEAGES = 4096                # about 30 KB each; an older entry's lineage is replayed where it is needed
+_GEN: dict[str, Any] = {}             # a generator process's state (and the options, in the loop's own process)
+
+
+def _generator_init(options: GenOptions, steps: int, max_depth: int, corpus_file: str | None) -> None:
+    """Runs once in each generator process: what every draw needs, the corpus file to read
+    parents from, and this process's own cache of their lineages."""
+    _GEN.update(options=options, steps=steps, max_depth=max_depth, file=corpus_file, offset=0, by_id={},
+                lineages=LineageCache(4096))
+
+
+def _generator_entry(entry_id: int) -> Entry | None:
+    """A corpus entry by id, reading the lines the loop has appended to corpus.jsonl since this
+    process last looked (the loop writes an entry before it asks for a child of it)."""
+    by_id: dict[int, Entry] = _GEN["by_id"]
+    if entry_id not in by_id and _GEN["file"] and os.path.exists(_GEN["file"]):
+        with open(_GEN["file"], "rb") as f:
+            f.seek(_GEN["offset"])
             data = f.read()
         end = data.rfind(b"\n") + 1
-        self.offset += end
-        entries = []
+        _GEN["offset"] += end
         for ln in data[:end].decode("utf-8").splitlines():
             if ln.strip():
                 d = json.loads(ln)
-                e = Entry(**{k: d[k] for k in Entry.__dataclass_fields__ if k in d})
-                if e.origin is None:
-                    entries.append(e)
-        return entries
-
-    def lineage(self, e: Entry, options: GenOptions, steps: int,
-                own: Callable[[int], tuple[Lineage, Choices] | None]) -> Lineage | None:
-        """The lineage a peer's entry draws: its own round on top of its parent's lineage when
-        that is at hand (a peer entry built here earlier, or through `own` a seed entry), else
-        replayed from its choices."""
-        choices = decode(e.choices)
-        if choices is None:
-            return None
-        cap = e.cap if e.cap is not None else steps
-        lineage = None
-        if e.parent is not None:
-            parent = own(e.parent) if e.parent < self.seed_entries else self._built.get(e.parent)
-            if parent is not None:
-                lineage = continue_lineage(parent[0], parent[1], choices, options, cap)
-        if lineage is None:
-            lineage = replay(choices, options, cap)
-        if lineage is not None:
-            self._built[e.id] = (lineage, choices)
-            while len(self._built) > self.capacity:
-                self._built.popitem(last=False)
-        return lineage
+                by_id[d["id"]] = Entry(**{k: d[k] for k in Entry.__dataclass_fields__ if k in d})
+        _GEN["lineages"].fit(len(by_id))
+    return by_id.get(entry_id)
 
 
-def claim(claims: Path, signature: str, owner: str = "") -> bool:
-    """True for the first worker to ask about a signature: that one shrinks and records the
-    finding, the others only count it. Creating the file is the claim (O_EXCL: one winner)."""
-    import hashlib
-    claims.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(claims / hashlib.sha1(signature.encode()).hexdigest()[:20], os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        return False
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(f"{owner}\n{signature[:500]}\n")
-    return True
+def generate(parent_id: int | None, seed: int, parent_pickle: bytes | None = None) -> Drawn | None:
+    """One draw, in a generator process: the corpus entry `parent_id` extended, or (without one,
+    or when it cannot be extended) a fresh lineage, from `seed` alone, so the loop's programs do
+    not depend on which process drew them. None when the draw was rejected.
+
+    The parent's lineage comes from this process's cache; when it is not there, from
+    `parent_pickle` (the lineage as the process that drew it pickled it: 4 ms to load, where
+    replaying its round costs 40 ms and its whole history 150), else it is replayed."""
+    options, steps, max_depth = _GEN["options"], _GEN["steps"], _GEN["max_depth"]
+    rng = Random(seed)
+    counts: Counter[str] = Counter()
+    drawn = None
+    parent_lineage: Lineage | None = None
+    if parent_id is not None:
+        parent = _generator_entry(parent_id)
+        parent_choices = decode(parent.choices) if parent is not None else None
+        if parent_choices:
+            cache: LineageCache = _GEN["lineages"]
+            if parent_pickle and not cache.has(parent_id):
+                cache.put(parent_id, pickle.loads(parent_pickle))
+            parent_lineage = cache.get(parent, options, steps, _GEN["by_id"])
+        if parent_lineage is not None and parent_lineage.depth >= max_depth:
+            counts["at-max-depth"] += 1
+        else:
+            drawn = extend(parent_choices, options, steps, rng, parent_lineage, max_depth=max_depth) if parent_lineage else None
+            counts["extended" if drawn else "extend-failed"] += 1
+    extended = drawn is not None
+    if drawn is None:
+        parent_lineage = None
+        drawn = draw_lineage(options, steps, rng=rng)
+        counts["fresh"] += 1
+    if drawn is None:
+        return None
+    lineage, choices = drawn
+    base_attempted = parent_lineage.attempted_by if parent_lineage else {}
+    base_rejected = parent_lineage.rejected_by if parent_lineage else {}
+    return Drawn(encode(choices), lineage.source, lineage.template, [StepName(s.name) for s in lineage.steps],
+                 len(lineage.code), lineage.cap, extended, dict(counts),
+                 {n: k - base_attempted.get(n, 0) for n, k in lineage.attempted_by.items()},
+                 {n: k - base_rejected.get(n, 0) for n, k in lineage.rejected_by.items()},
+                 pickle.dumps(lineage, pickle.HIGHEST_PROTOCOL))
 
 
 # ------------------------------------------------------------------------------- running one lineage
@@ -359,11 +391,13 @@ class Runner(Protocol):
     def __call__(self, lineage: Lineage, require: ProbeSet | None = None) -> Observation: ...
 
 
-def harness_runner(client, language_version: int = 200, verdict: Callable[[Any], Verdict] = compare_run) -> Runner:
+def harness_runner(client, language_version: int = 200, verdict: Callable[[Any], Verdict] = compare_run,
+                   wall_ms: int = WALL_MS) -> Runner:
     """Runs a lineage's final program in both Rhino modes, asking for new probe ids. `verdict`
-    judges the run: the mode comparison, or crossver.cross_verdict for a CrossClient's runs."""
+    judges the run: the mode comparison, or crossver.cross_verdict for a CrossClient's runs.
+    `wall_ms` is the time a mode gets before it counts as timed out."""
     def run(lineage: Lineage, require: ProbeSet | None = None) -> Observation:
-        res = client.run(lineage.source, language_version=language_version, seed=1,
+        res = client.run(lineage.source, language_version=language_version, seed=1, wall_ms=wall_ms,
                          coverage_bucket=lineage.template, coverage_new_ids=True, coverage_require=require)
         new_ids: ProbeSet = {}
         reached: ProbeSet = {}
@@ -507,8 +541,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          compact_budget: int = 0, source_shrink_budget: int = 300, language_version: int = 200,
          runner: Runner | None = None, client=None, quiet: bool = False,
          max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run,
-         judge_findings: bool = False, pipeline: bool = True, peers: Sequence[Peer] = (),
-         sync_seconds: float = 30.0, claims: Path | None = None) -> dict[str, Any]:
+         judge_findings: bool = False, pipeline: bool = True, generators: int = 0,
+         wall_ms: int = WALL_MS) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
     coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
     or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
@@ -516,11 +550,9 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     probably connects to. `verdict` judges each run (crossver.cross_verdict with a CrossClient).
     With `judge_findings`, each new finding, once shrunk, runs on engine262 too (oxpecker.judge),
     which says which side agrees with the spec. `pipeline` draws the next program while the
-    current one runs (see the loop).
-    `peers` are the other workers' corpora (Peer): every `sync_seconds` their new entries are run
-    here and the ones reaching probes new to this worker join its corpus. With `claims` (a
-    directory the workers share) a new finding is shrunk and recorded by the worker that claims
-    its signature first.
+    current one runs (see the loop). With `generators` N > 0, N processes draw the programs and
+    this one only picks parents, runs, judges and keeps the corpus: drawing is single-threaded
+    Python and the slow half of an iteration, while one JVM runs what several processes draw.
     Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
@@ -529,6 +561,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     known = set(known or ())
     t0 = time.time()
     last_report = t0
+    last_checkpoint = 0.0                    # the first entry found is saved at once
     own_client = None
     if runner is None:
         from .harness.client import HarnessClient
@@ -538,7 +571,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if not client.info().get("coverage"):
                 client.stop()
                 raise RuntimeError("coverage agent not attached; the harness build must include jacocoagent.jar")
-        runner = harness_runner(client, language_version, verdict)
+        runner = harness_runner(client, language_version, verdict, wall_ms)
     if client is not None:
         client.coverage_checkpoint = str(corpus.exec)
         if corpus.exec.exists():
@@ -548,6 +581,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
 
     lineages = LineageCache()
     lineages.fit(len(corpus.entries))
+    pickled: OrderedDict[int, bytes] = OrderedDict()   # with generators: entry id -> its lineage, pickled where it was drawn
     child_timeouts: Counter[int] = Counter()   # entry id -> its children that timed out this run
     weights: list[float] | None = None         # parent_weights, recomputed when either changes
     attempted: Counter[str] = Counter()      # mutation steps tried this run, per mutator (G51)
@@ -590,7 +624,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     def process(job: tuple[Entry | None, Lineage | None, Lineage, Choices], obs: Observation) -> None:
         """What a run showed: the verdict counted, a finding shrunk and recorded, new probes into
         the corpus."""
-        nonlocal weights, last_report
+        nonlocal weights, last_report, last_checkpoint
         parent, base_lineage, lineage, choices = job
         v = obs.verdict
         stats[v.kind] += 1
@@ -602,9 +636,6 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         elif v.kind == HARD:
             sig = v.signature()
             sig_counts[sig] += 1
-            if sig not in known and claims is not None and not claim(claims, sig, corpus.dir.name):
-                known.add(sig)                       # another worker has it
-                stats["findings-claimed-elsewhere"] += 1
             if sig in known:
                 findings.record(lineage, obs.run, v, out_dir=findings_dir)
             else:
@@ -666,89 +697,84 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                     stats["compacted"] += 1
             e_choices, e_lineage, probes = entry
             new_entry = Entry(corpus.next_id(), encode(e_choices), e_lineage.template, [s.name for s in e_lineage.steps],
-                              obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code),
+                              obs.new_probes, probes, parent.id if parent else None,
+                              e_lineage.instructions if isinstance(e_lineage, Drawn) else len(e_lineage.code),
                               cap=e_lineage.cap, ms=obs.ms)
             corpus.add(new_entry)
             weights = None
-            if len(corpus.entries) >= lineages.capacity:
-                lineages.fit(len(corpus.entries))
-            lineages.put(new_entry.id, e_lineage)
+            if isinstance(e_lineage, Lineage):
+                if len(corpus.entries) >= lineages.capacity:
+                    lineages.fit(len(corpus.entries))
+                lineages.put(new_entry.id, e_lineage)
+            elif e_lineage.lineage:                          # with generators the lineages live in their processes;
+                pickled[new_entry.id] = e_lineage.lineage    # the loop keeps the newest entries' pickled, unopened
+                while len(pickled) > PICKLED_LINEAGES:
+                    pickled.popitem(last=False)
             for step in e_lineage.steps[len(base_lineage.steps) if base_lineage else 0:]:
                 productive[step.name] += 1
             stats["corpus-added"] += 1
             stats["new-probes"] += obs.new_probes
-            if client is not None:
-                # the checkpoint a restarted JVM resumes from (HarnessClient.coverage_checkpoint):
-                # only runs with new probes move the frontier, and each of those is added here
+            if client is not None and time.time() - last_checkpoint >= CHECKPOINT_SECONDS:
+                # The checkpoint a restarted JVM resumes from (HarnessClient.coverage_checkpoint).
+                # Not after every entry: a save is 30 to 50 ms a JVM, an eighth of the loop's time
+                # once several processes draw. A JVM that restarts takes the probes found since
+                # the last one for new again, which costs a few entries the corpus already has.
                 client.coverage_save(str(corpus.exec))
-        if time.time() - last_report > 10:
+                last_checkpoint = time.time()
+        if not quiet and time.time() - last_report > 10:
             last_report = time.time()
             rate = i / (last_report - t0)
-            write_status(last_report)
-            if not quiet:
-                print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
-                      f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
-                                                                     if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
-                      file=sys.stderr)
-
-    def write_status(now: float) -> None:
-        """`status.json`, every ten seconds: what a supervisor of several workers adds up."""
-        tmp = corpus.dir / "status.json.tmp"
-        tmp.write_text(json.dumps({"runs": i, "seconds": now - t0, "corpus": len(corpus.entries), "stats": dict(stats)}),
-                       encoding="utf-8")
-        os.replace(tmp, corpus.dir / "status.json")
-
-    def own_lineage(entry_id: int) -> tuple[Lineage, Choices] | None:
-        e = corpus.by_id.get(entry_id)
-        choices = decode(e.choices) if e is not None else None
-        lineage = lineages.get(e, options, steps, corpus.by_id) if choices else None
-        return (lineage, choices) if lineage is not None else None
-
-    def sync() -> None:
-        """Run the other workers' new entries here; keep the ones that reach probes new to this
-        worker. Their verdicts are not looked at: the worker that found an entry judged it."""
-        nonlocal weights
-        kept = 0
-        for peer in peers:
-            for e in peer.new_entries():
-                stats["sync-seen"] += 1
-                lineage = peer.lineage(e, options, steps, own_lineage)
-                if lineage is None:
-                    stats["sync-undecodable"] += 1
-                    continue
-                obs = runner(lineage)
-                if obs.new_probes <= 0 or obs.timed_out:
-                    continue
-                if e.parent is not None and e.parent < peer.seed_entries:
-                    parent_id = e.parent
-                else:
-                    parent_id = peer.local.get(e.parent) if e.parent is not None else None
-                new_entry = Entry(corpus.next_id(), e.choices, lineage.template, [s.name for s in lineage.steps],
-                                  obs.new_probes, obs.new_probe_ids, parent_id, len(lineage.code), cap=lineage.cap,
-                                  ms=obs.ms, origin=f"{peer.name}:{e.id}")
-                corpus.add(new_entry)
-                peer.local[e.id] = new_entry.id
-                if len(corpus.entries) >= lineages.capacity:
-                    lineages.fit(len(corpus.entries))
-                lineages.put(new_entry.id, lineage)
-                weights = None
-                kept += 1
-                stats["sync-kept"] += 1
-                stats["new-probes"] += obs.new_probes
-        if kept and client is not None:
-            client.coverage_save(str(corpus.exec))          # once for the round: 30 ms a save
+            print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
+                  f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
+                                                                 if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
+                  file=sys.stderr)
 
     # With `pipeline`, a program runs on a thread (which waits on the JVM's pipe) while the next
     # one is drawn here: an iteration costs the longer of drawing and running instead of their
     # sum. One request is in flight at most, and the run is processed (shrinking included, which
     # uses the client itself) before the next is submitted; the price is that the next program's
     # parent is picked from the corpus as it was before the run in flight.
-    pool = ThreadPoolExecutor(1, thread_name_prefix="oxpecker-run") if pipeline else None
+    pool = ThreadPoolExecutor(1, thread_name_prefix="oxpecker-run") if pipeline and not generators else None
     pending: tuple[Any, Any] | None = None
-    next_sync = time.time() + sync_seconds
+    drawers: ProcessPoolExecutor | None = None
     i = 0
     try:
-        while True:
+        if generators:
+            # Generator processes: this loop picks the parent and a seed, a process draws the
+            # program (`generate`), and the results are taken in the order they were asked for,
+            # so a run with a seed is the same whichever process answers first. `2 * generators`
+            # draws are kept in flight; their parents were picked before the runs ahead of them
+            # were processed, as with `pipeline`.
+            _GEN["options"] = options                      # for Drawn.code in this process
+            drawers = ProcessPoolExecutor(generators, initializer=_generator_init,
+                                          initargs=(options, steps, max_depth, str(corpus.file)))
+            asked: deque[tuple[Entry | None, Any]] = deque()
+            while True:
+                while len(asked) < 2 * generators and not (iterations is not None and i >= iterations) \
+                        and not (seconds is not None and time.time() - t0 >= seconds):
+                    i += 1
+                    parent = None
+                    if corpus.entries and rng.random() > p_new:
+                        if weights is None:
+                            weights = parent_weights(corpus.entries, child_timeouts)
+                        parent = rng.choices(corpus.entries, weights)[0]
+                    asked.append((parent, drawers.submit(generate, parent.id if parent else None, rng.getrandbits(64),
+                                                         pickled.get(parent.id) if parent else None)))
+                if not asked:
+                    break
+                parent, future = asked.popleft()
+                drawn = future.result()
+                if drawn is None:
+                    stats["fresh"] += 1
+                    stats["rejected"] += 1
+                    continue
+                stats.update(drawn.counts)
+                attempted.update(drawn.attempted)
+                rejected.update(drawn.rejected)
+                if not drawn.extended:
+                    parent = None
+                process((parent, parent, drawn, decode(drawn.choices)), runner(drawn))
+        while not generators:
             if iterations is not None and i >= iterations:
                 break
             if seconds is not None and time.time() - t0 >= seconds:
@@ -758,9 +784,6 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if pending is not None:
                 process(pending[0], pending[1].result())
                 pending = None
-            if peers and time.time() >= next_sync:           # nothing in flight here: the JVM is free
-                sync()
-                next_sync = time.time() + sync_seconds
             if job is None:
                 continue
             if pool is not None:
@@ -770,11 +793,11 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         if pending is not None:
             process(pending[0], pending[1].result())
             pending = None
-        if peers:
-            sync()
     finally:
         if pool is not None:
             pool.shutdown(wait=True)             # no request in flight when the coverage is saved
+        if drawers is not None:
+            drawers.shutdown(wait=False, cancel_futures=True)
         report: dict[str, Any] = {}
         if client is not None:
             client.coverage_save(str(corpus.exec))

@@ -289,6 +289,56 @@ def test_the_pipelined_loop_runs_one_program_at_a_time_and_processes_every_run(t
     assert not any(t.startswith("oxpecker-run") for t in serial.threads)
 
 
+def test_generator_processes_draw_what_the_loop_runs_and_the_corpus_replays(tmp_path: Path):
+    """`generators=N`: N processes draw, the loop picks parents, runs and keeps the corpus. The
+    results are taken in the order asked for, so the loop is the same from the same seed whichever
+    process answers first; an entry's choices replay to the program that ran; children of entries
+    found this run are drawn (their lineage handed to the generator pickled, or rebuilt there)."""
+    def run(name: str):
+        runner = FakeRunner()
+        summary = fuzz(corpus_dir=tmp_path / name, options=OPTIONS, iterations=70, steps=STEPS, seed=3, runner=runner,
+                       findings_dir=tmp_path / (name + "-findings"), shrink_budget=0, quiet=True, generators=2)   # the shrinker's
+        # runs are not seeded, and what they happen to cover first changes which later runs bring new probes
+        return runner, summary, Corpus(tmp_path / name)
+
+    runner, summary, corpus = run("a")
+    stats = summary["stats"]
+    assert summary["runs"] == 70 and stats["extended"] + stats["fresh"] == 70 - stats.get("rejected", 0)
+    assert summary["corpus"] == stats["corpus-added"] == len(corpus.entries) > 3
+    assert summary["stats"]["steps-attempted"] > 0 and any(m["corpus"] for m in summary["mutators"].values())
+    seen: set[str] = set()
+    for k, e in enumerate(corpus.entries):
+        lineage = corpus.replay(k, OPTIONS)
+        assert [s.name for s in lineage.steps] == e.steps and len(lineage.code) == e.instructions
+        new = {type(i.op).__name__ for i in lineage.code} - seen       # the probes it was kept for
+        assert len(new) >= e.new_probes > 0
+        seen |= new
+    children = [e for e in corpus.entries if e.parent is not None]
+    assert children and all(len(e.steps) >= len(corpus.by_id[e.parent].steps) for e in children)
+    _, summary2, corpus2 = run("b")
+    assert summary2["stats"] == stats and [e.choices for e in corpus2.entries] == [e.choices for e in corpus.entries]
+
+
+def test_a_generator_extends_a_parent_from_its_pickle_exactly_as_from_its_choices(tmp_path: Path):
+    import pickle
+    from oxpecker import fuzz as fz
+    lineage, choices = draw_lineage(OPTIONS, STEPS, seed=6)
+    corpus = Corpus(tmp_path)
+    corpus.add(Entry(0, encode(choices), lineage.template, [s.name for s in lineage.steps], 1, cap=lineage.cap))
+    drawn = []
+    for parent_pickle in (None, pickle.dumps(lineage)):
+        fz._GEN.clear()
+        fz._generator_init(OPTIONS, STEPS, 20, str(corpus.file))
+        drawn.append(fz.generate(0, 99, parent_pickle))
+        assert fz._GEN["lineages"].misses == (1 if parent_pickle is None else 0)
+    a, b = drawn
+    assert a.extended and a.choices == b.choices and a.source == b.source and a.source != lineage.source
+    assert decode(a.choices)[:len(choices) - 1] == choices[:-1] or lineage.at_cap
+    assert pickle.loads(a.lineage).source == a.source and a.code == replay(decode(a.choices), OPTIONS, a.cap).code
+    assert fz.generate(None, 5).extended is False
+    fz._GEN.clear()
+
+
 def test_shrinker_returns_a_smaller_lineage_that_still_fails():
     runner = FakeRunner()
     found = None

@@ -549,20 +549,6 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
     from .harness.compare import compare_run
     from .related import known_index
 
-    corpus_dir = Path(args.corpus)
-    findings_dir = Path(args.findings_dir) if args.findings_dir else findings.DEFAULT_DIR
-    seed, peers, claims = args.seed, (), None
-    if args.worker_index is not None:
-        # one of `--workers N`: its own corpus under CORPUS/wK, the others' corpora read as peers
-        from . import workers
-        corpus_dir, peers = workers.prepare(Path(args.corpus), args.worker_index, args.workers)
-        claims = Path(args.corpus) / "claims"
-        findings_dir = findings_dir / f"w{args.worker_index}"
-        seed = seed + args.worker_index if seed is not None else None
-    elif args.workers > 1:
-        from . import workers
-        return workers.supervise(Path(args.corpus), args.workers, args.argv[args.argv.index("fuzz") + 1:], quiet=args.quiet)
-
     base = crossver.baseline()
     if base and not targets.jar(base).exists():
         print(f"no harness jar for the baseline {base}: oxpecker build-harness {base}", file=sys.stderr)
@@ -573,7 +559,13 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
         print("--judge: engine262 is not installed (npm install --prefix judge)", file=sys.stderr)
         return 2
     options = _gen_options(args)
-    with HarnessClient(quiet=True, coverage=True) as client, contextlib.ExitStack() as stack:
+    mode_jvms = args.workers > 1 if args.mode_jvms is None else args.mode_jvms
+    if mode_jvms:
+        from .harness.client import ModeClients
+        own = ModeClients(quiet=True, coverage=True)
+    else:
+        own = HarnessClient(quiet=True, coverage=True)
+    with own as client, contextlib.ExitStack() as stack:
         if not client.info().get("coverage"):
             print("coverage agent not attached: the harness build must include jacocoagent.jar", file=sys.stderr)
             return 2
@@ -585,19 +577,19 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                 print(f"comparing Rhino {client.cand_target} with {base}: a changed mode is a finding", file=sys.stderr)
         index = known_index(client, verdict=verdict)
         known = index.signatures if not args.ignore_known else set()
-        summary = fuzz(corpus_dir=corpus_dir, options=options, iterations=args.iterations, seconds=args.seconds,
-                       steps=args.steps, p_new=args.p_new, seed=seed, known=known, related_index=index,
-                       findings_dir=findings_dir,
+        summary = fuzz(corpus_dir=Path(args.corpus), options=options, iterations=args.iterations, seconds=args.seconds,
+                       steps=args.steps, p_new=args.p_new, seed=args.seed, known=known, related_index=index,
+                       findings_dir=Path(args.findings_dir) if args.findings_dir else findings.DEFAULT_DIR,
                        shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
                        source_shrink_budget=args.source_shrink_budget,
                        language_version=args.language_version, client=client, quiet=args.quiet,
                        max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings,
-                       pipeline=args.pipeline, peers=peers, sync_seconds=args.sync_seconds, claims=claims)
-    # CPU spent, now that the JVMs have exited and been waited for: this process (drawing, lifting,
-    # comparing) and its children (the harness JVMs, with their compiler and collector threads)
+                       pipeline=args.pipeline, generators=args.workers if args.workers > 1 else 0, wall_ms=args.wall_ms)
+    # CPU spent, now that the JVMs and the generator processes have exited and been waited for:
+    # this process (picking, comparing; drawing too without --workers) and its children
     t = os.times()
-    summary["cpu_seconds"] = {"python": round(t.user + t.system, 1), "harness": round(t.children_user + t.children_system, 1)}
-    (corpus_dir / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    summary["cpu_seconds"] = {"python": round(t.user + t.system, 1), "children": round(t.children_user + t.children_system, 1)}
+    (Path(args.corpus) / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(json.dumps({k: v for k, v in summary.items() if k != "signatures"}, indent=1))
     if summary["signatures"]:
         print("hard signatures seen:")
@@ -688,12 +680,14 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("--language-version", type=int, default=200)
     fz.add_argument("-q", "--quiet", action="store_true")
     fz.add_argument("--workers", type=int, default=1, metavar="N",
-                    help="N loops side by side, each its own process, JVM and corpus (CORPUS/wK), taking each other's "
-                         "corpus entries as they appear; merged into CORPUS at the end (oxpecker.workers)")
-    fz.add_argument("--sync-seconds", type=float, default=30.0, help="with --workers: how often a worker reads the others' new entries")
+                    help="draw the programs in N generator processes; this one picks parents, runs them in the one JVM, "
+                         "judges and keeps the corpus (drawing is the slow, single-threaded half of the loop)")
+    fz.add_argument("--wall-ms", type=int, default=1500,
+                    help="a mode's time limit; past it the run counts as timed out (default 1500; oxpecker run and diff use 5000)")
+    fz.add_argument("--mode-jvms", action=argparse.BooleanOptionalAction, default=None,
+                    help="one JVM per mode, run at once, instead of one JVM running the modes in turn (default: with --workers)")
     fz.add_argument("--pipeline", action=argparse.BooleanOptionalAction, default=True,
-                    help="draw the next program while the current one runs (default: on)")
-    fz.add_argument("--worker-index", type=int, help=argparse.SUPPRESS)       # set by --workers for each of its processes
+                    help="without --workers: draw the next program while the current one runs (default: on)")
     fz.set_defaults(fn=cmd_fuzz)
 
     sh = sub.add_parser("shrink", help="statement-level shrinking of a reproducer while its coarse verdict holds")
@@ -773,7 +767,6 @@ def main(argv: list[str] | None = None) -> int:
     xv.set_defaults(fn=cmd_xver)
 
     args = ap.parse_args(argv)
-    args.argv = list(sys.argv[1:] if argv is None else argv)      # what `fuzz --workers` passes on to its workers
     return args.fn(args)
 
 
