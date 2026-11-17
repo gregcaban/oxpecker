@@ -59,13 +59,14 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
     seen = _seen(log)
     if sig not in seen:
         seen.add(sig)
-        with log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"signature": sig, "rhino": targets.current(), **({"baseline": base} if base else {}), "verdict": verdict.to_json(), "source": prog.source,
+        # one write of the whole line, unbuffered: the loop and its shrink process both append here
+        with log.open("ab", buffering=0) as f:
+            f.write((json.dumps({"signature": sig, "rhino": targets.current(), **({"baseline": base} if base else {}), "verdict": verdict.to_json(), "source": prog.source,
                                 "template": prog.template, "choices": choices,
                                 "related": [{"regression": r.name, "score": r.score, "shared": list(r.shared)}
                                             for r in related or ()],
                                 **({"judge": judgement.to_json()} if judgement is not None else {}),
-                                "results": run.to_json()["results"]}) + "\n")
+                                "results": run.to_json()["results"]}) + "\n").encode("utf-8"))
         _SEEN[log] = (log.stat().st_size, seen)
     if not reproducer:
         return None

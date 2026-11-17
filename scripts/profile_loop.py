@@ -172,12 +172,17 @@ def cmd_loop(args) -> None:
         # the loop's own wait for a program's run (on the run thread when pipelined): with a JVM per
         # mode the requests above are on two more threads, and this is the wall they cost together
         runner = t.wrap("run: the loop waiting for the JVMs (wall)", fz.harness_runner(client, 200, verdict))
-        if args.workers:
+        if args.shrink_process:
+            verdict = compare_run                # goes to the shrink process: the timed wrapper does not pickle
+            runner = t.wrap("run: the loop waiting for the JVMs (wall)", fz.harness_runner(client, 200, verdict))
+        if args.workers or args.shrink_process:
             real_result = fz.ProcessPoolExecutor.submit
 
-            def submit(self, *a, **kw):
-                future = real_result(self, *a, **kw)
-                future.result = t.wrap("gen: the loop waiting for a generator process", future.result)
+            def submit(self, fn, *a, **kw):
+                future = real_result(self, fn, *a, **kw)
+                label = ("shrink: the loop waiting for the shrink process (end of the run)" if fn is fz.shrink_finding
+                         else "gen: the loop waiting for a generator process")
+                future.result = t.wrap(label, future.result)
                 return future
             fz.ProcessPoolExecutor.submit = submit
         t.total.clear(), t.calls.clear(), round_trips.clear()
@@ -185,7 +190,7 @@ def cmd_loop(args) -> None:
         summary = fz.fuzz(corpus_dir=corpus, options=GenOptions(), seconds=args.seconds, seed=args.seed,
                           known=index.signatures, related_index=index, findings_dir=out / "findings",
                           client=client, runner=runner, quiet=True, verdict=verdict, judge_findings=False,
-                          pipeline=not args.no_pipeline, generators=args.workers)
+                          pipeline=not args.no_pipeline, generators=args.workers, shrink_process=args.shrink_process)
         wall = time.perf_counter() - started
     rows = [(k, v, t.calls[k]) for k, v in t.total.items()]
     accounted = sum(v for _, v, _ in rows)
@@ -467,6 +472,7 @@ def main() -> None:
     lp.add_argument("--no-pipeline", action="store_true", help="draw and run in turn, as before pipelining")
     lp.add_argument("--workers", type=int, default=0, help="generator processes (oxpecker fuzz --workers)")
     lp.add_argument("--mode-jvms", action="store_true", help="one JVM per mode (oxpecker fuzz --mode-jvms)")
+    lp.add_argument("--shrink-process", action="store_true", help="shrink findings in their own process (oxpecker fuzz --shrink-process)")
     lp.set_defaults(fn=cmd_loop)
     g = sub.add_parser("gen")
     g.add_argument("out")

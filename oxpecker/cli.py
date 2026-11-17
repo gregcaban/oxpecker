@@ -627,7 +627,8 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                        source_shrink_budget=args.source_shrink_budget,
                        language_version=args.language_version, client=client, quiet=args.quiet,
                        max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings,
-                       pipeline=args.pipeline, generators=args.workers if args.workers > 1 else 0, wall_ms=args.wall_ms)
+                       pipeline=args.pipeline, generators=args.workers if args.workers > 1 else 0, wall_ms=args.wall_ms,
+                       shrink_process=args.workers > 1 if args.shrink_process is None else args.shrink_process)
     # CPU spent, now that the JVMs and the generator processes have exited and been waited for:
     # this process (picking, comparing; drawing too without --workers) and its children
     t = os.times()
@@ -730,6 +731,9 @@ def main(argv: list[str] | None = None) -> int:
                          "judges and keeps the corpus (drawing is the slow, single-threaded half of the loop)")
     fz.add_argument("--wall-ms", type=int, default=1500,
                     help="a mode's time limit; past it the run counts as timed out (default 1500; oxpecker run and diff use 5000)")
+    fz.add_argument("--shrink-process", action=argparse.BooleanOptionalAction, default=None,
+                    help="shrink and record new findings in a process of their own, with its own JVM, while the loop "
+                         "goes on (default: with --workers)")
     fz.add_argument("--mode-jvms", action=argparse.BooleanOptionalAction, default=None,
                     help="one JVM per mode, run at once, instead of one JVM running the modes in turn (default: with --workers)")
     fz.add_argument("--pipeline", action=argparse.BooleanOptionalAction, default=True,

@@ -534,6 +534,91 @@ class Shrinker:
         return self.best
 
 
+# ------------------------------------------------------------------------------- shrinking a finding
+def shrink_and_record(runner: Runner, client, options: GenOptions, steps: int, lineage: Lineage, choices: Choices,
+                      obs: Observation, *, shrink_budget: int, source_shrink_budget: int, language_version: int,
+                      verdict: Callable[[Any], Verdict], related_index, judge_findings: bool,
+                      findings_dir: Path) -> dict[str, Any]:
+    """A new finding made small and written down: Hypothesis's shrinker over the lineage, then
+    statement-level deletion on the lifted source, the regressions it probably connects to, the
+    engine262 judgement, the record and its reproducer. Returns what the loop prints (plain
+    values: with `shrink_process` this runs in another process)."""
+    # Shrink towards this finding's coarse signature, not "any unknown hard verdict": the
+    # signature is already in the loop's `known`, so that predicate would reject every candidate
+    # (including the replay of the finding itself) and Hypothesis would never start shrinking.
+    coarse = obs.verdict.coarse_signature()
+
+    def same_bug(l: Lineage, o: Observation) -> type[Exception] | None:
+        return finding_class(coarse) if o.verdict.kind == HARD and o.verdict.coarse_signature() == coarse else None
+
+    shrinker = Shrinker(runner, options, steps, same_bug, budget=shrink_budget)
+    small = shrinker.shrink(choices, lineage.cap) or (lineage, choices, obs)
+    record_as, rec_run, rec_verdict = small[0], small[2].run, small[2].verdict
+    if client is not None and source_shrink_budget:
+        # then statement-level deletion on the lifted source, which gets much further
+        # than choice shrinking within a budget (proposal §3.7)
+        shrunk = shrink_lifted(client, small[0].source, rec_verdict.coarse_signature(),
+                               language_version, source_shrink_budget, verdict)
+        if shrunk is not None:
+            record_as, rec_run, rec_verdict = shrunk
+    related = []
+    if related_index is not None:
+        from .related import Fingerprint
+        related = related_index.related(Fingerprint.of("finding", record_as.source, rec_run, rec_verdict))
+    judgement = None
+    if judge_findings:
+        from . import judge
+        judgement = judge.judge(record_as.source, rec_run)
+    path = findings.record(record_as, rec_run, rec_verdict, out_dir=findings_dir,
+                           reproducer=True, replay_cmd="oxpecker diff", related=related,
+                           judgement=judgement)
+    return {"pretty": rec_verdict.pretty(), "path": str(path), "lines": len(record_as.source.splitlines()),
+            "from_instructions": len(lineage.code), "instructions": len(small[0].code),
+            "from_steps": len(lineage.steps), "steps": len(small[0].steps), "runs": shrinker.calls,
+            "source_lines": len(small[0].source.splitlines()),
+            "judge": (judgement.label, judgement.summary) if judgement is not None else None,
+            "related": [str(r) for r in related]}
+
+
+_SHRINK: dict[str, Any] = {}           # the shrink process's state
+
+
+def _shrinker_init(options: GenOptions, steps: int, language_version: int, shrink_budget: int, source_shrink_budget: int,
+                   findings_dir: str, verdict: Callable[[Any], Verdict], judge_findings: bool, wall_ms: int) -> None:
+    """Runs once in the shrink process (`fuzz(shrink_process=True)`): its own JVM, without the
+    coverage agent (shrinking asks only for verdicts), beside the baseline's when the loop
+    compares two Rhinos, and the index of regressions a finding is related to."""
+    from . import crossver
+    from .harness.client import HarnessClient
+    from .related import known_index
+    client: Any = HarnessClient(quiet=True)
+    client.start()
+    if crossver.baseline():
+        client = crossver.CrossClient(client, crossver.baseline())
+        client.start()
+    _SHRINK.update(client=client, runner=harness_runner(client, language_version, verdict, wall_ms), options=options,
+                   steps=steps, index=known_index(client, verdict=verdict),
+                   kwargs=dict(shrink_budget=shrink_budget, source_shrink_budget=source_shrink_budget,
+                               language_version=language_version, verdict=verdict, judge_findings=judge_findings,
+                               findings_dir=Path(findings_dir)))
+
+
+def shrink_finding(choices: str, cap: int, coarse: str) -> dict[str, Any] | None:
+    """In the shrink process: the finding drawn again from its choices, run, and when it shows
+    the same coarse signature, shrunk and recorded. None when it does not (the loop then records
+    it as it saw it)."""
+    options = _SHRINK["options"]
+    decoded = decode(choices)
+    lineage = replay(decoded, options, cap) if decoded is not None else None
+    if lineage is None:
+        return None
+    obs = _SHRINK["runner"](lineage)
+    if obs.verdict.kind != HARD or obs.verdict.coarse_signature() != coarse:
+        return None
+    return shrink_and_record(_SHRINK["runner"], _SHRINK["client"], options, _SHRINK["steps"], lineage, decoded, obs,
+                             related_index=_SHRINK["index"], **_SHRINK["kwargs"])
+
+
 # ------------------------------------------------------------------------------- the loop
 def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: int | None = None,
          seconds: float | None = None, steps: int = 5, p_new: float = 0.2, seed: int | None = None,
@@ -542,7 +627,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          runner: Runner | None = None, client=None, quiet: bool = False,
          max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run,
          judge_findings: bool = False, pipeline: bool = True, generators: int = 0,
-         wall_ms: int = WALL_MS) -> dict[str, Any]:
+         wall_ms: int = WALL_MS, shrink_process: bool = False) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
     coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
     or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
@@ -553,6 +638,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     current one runs (see the loop). With `generators` N > 0, N processes draw the programs and
     this one only picks parents, runs, judges and keeps the corpus: drawing is single-threaded
     Python and the slow half of an iteration, while one JVM runs what several processes draw.
+    With `shrink_process` a new finding is shrunk and recorded in a process of its own, with its
+    own JVM, while the loop goes on (shrinking four findings took 28 % of a three-minute run, most
+    of it Hypothesis drawing candidates here while the JVMs and the generators waited); the run
+    ends when the findings still being shrunk are done.
     Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
@@ -592,6 +681,48 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     attempted: Counter[str] = Counter()      # mutation steps tried this run, per mutator (G51)
     rejected: Counter[str] = Counter()       # of those, the ones whose child did not verify
     productive: Counter[str] = Counter()     # steps of the entries added to the corpus this run
+    shrinks: ProcessPoolExecutor | None = None      # with `shrink_process`: where new findings are shrunk
+    shrinking: list[tuple[Any, Any, Observation]] = []   # (future, the finding's lineage, its run) not yet reported
+
+    def reported(report: dict[str, Any]) -> None:
+        """A finding shrunk and recorded (`shrink_and_record`): counted and printed."""
+        if report.get("judge"):
+            stats[f"judged-{report['judge'][0]}"] += 1
+        if not quiet:
+            print(f"[finding] {report['pretty'][:160]}\n          -> {report['path']} "
+                  f"({report['lines']} lines; lineage shrink {report['from_instructions']} -> "
+                  f"{report['instructions']} instructions, {report['from_steps']} -> {report['steps']} steps "
+                  f"in {report['runs']} runs; source shrink {report['source_lines']} -> {report['lines']} lines)",
+                  file=sys.stderr)
+            if report.get("judge"):
+                print(f"          engine262: {report['judge'][0]}: {report['judge'][1]}", file=sys.stderr)
+            for r in report["related"]:
+                print(f"          related: {r}", file=sys.stderr)
+
+    def collect(wait: bool = False) -> None:
+        """Report the findings the shrink process has finished (all of them with `wait`). One it
+        could not shrink (the finding did not show again there, or the process failed) is
+        recorded as the loop saw it."""
+        for item in list(shrinking):
+            future, lineage, obs = item
+            if not (wait or future.done()):
+                continue
+            shrinking.remove(item)
+            try:
+                report = future.result()
+            except Exception as e:                       # the shrink process died or could not start
+                report = None
+                if not quiet:
+                    print(f"[finding] shrink process failed ({type(e).__name__}: {e}); recorded unshrunk", file=sys.stderr)
+            if report is None:
+                stats["findings-unshrunk"] += 1
+                path = findings.record(lineage, obs.run, obs.verdict, out_dir=findings_dir, reproducer=True,
+                                       replay_cmd="oxpecker diff")
+                if not quiet:
+                    print(f"[finding] {obs.verdict.pretty()[:160]}\n          -> {path} (not shrunk)", file=sys.stderr)
+            else:
+                reported(report)
+
     def draw_next() -> tuple[Entry | None, Lineage | None, Lineage, Choices] | None:
         """The next program to run: a corpus entry extended, or a fresh lineage. None when the
         draw was rejected."""
@@ -646,49 +777,19 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             else:
                 known.add(sig)
                 stats["new-findings"] += 1
-                # Shrink towards this finding's coarse signature, not "any unknown hard
-                # verdict": the signature was just added to `known`, so the loop's own
-                # predicate would reject every candidate (including the replay of the
-                # finding itself) and Hypothesis would never start shrinking.
-                coarse = v.coarse_signature()
-
-                def same_bug(l: Lineage, o: Observation, coarse: str = coarse) -> type[Exception] | None:
-                    return finding_class(coarse) if o.verdict.kind == HARD and o.verdict.coarse_signature() == coarse else None
-
-                shrinker = Shrinker(runner, options, steps, same_bug, budget=shrink_budget)
-                small = shrinker.shrink(choices, lineage.cap) or (lineage, choices, obs)
-                record_as, rec_run, rec_verdict = small[0], small[2].run, small[2].verdict
-                if client is not None and source_shrink_budget:
-                    # then statement-level deletion on the lifted source, which gets much further
-                    # than choice shrinking within a budget (proposal §3.7)
-                    shrunk = shrink_lifted(client, small[0].source, rec_verdict.coarse_signature(),
-                                           language_version, source_shrink_budget, verdict)
-                    if shrunk is not None:
-                        record_as, rec_run, rec_verdict = shrunk
-                related = []
-                if related_index is not None:
-                    from .related import Fingerprint
-                    related = related_index.related(Fingerprint.of("finding", record_as.source, rec_run, rec_verdict))
-                judgement = None
-                if judge_findings:
-                    from . import judge
-                    judgement = judge.judge(record_as.source, rec_run)
-                    stats[f"judged-{judgement.label}"] += 1
-                path = findings.record(record_as, rec_run, rec_verdict, out_dir=findings_dir,
-                                       reproducer=True, replay_cmd="oxpecker diff", related=related,
-                                       judgement=judgement)
                 if parent is not None:
                     parent.found.append(sig)
-                if not quiet:
-                    print(f"[finding] {rec_verdict.pretty()[:160]}\n          -> {path} "
-                          f"({len(record_as.source.splitlines())} lines; lineage shrink {len(lineage.code)} -> "
-                          f"{len(small[0].code)} instructions, {len(lineage.steps)} -> {len(small[0].steps)} steps "
-                          f"in {shrinker.calls} runs; source shrink {len(small[0].source.splitlines())} -> "
-                          f"{len(record_as.source.splitlines())} lines)", file=sys.stderr)
-                    if judgement is not None:
-                        print(f"          engine262: {judgement.label}: {judgement.summary}", file=sys.stderr)
-                    for r in related:
-                        print(f"          related: {r}", file=sys.stderr)
+                if shrinks is not None:
+                    # shrunk and recorded in the shrink process while the loop goes on
+                    shrinking.append((shrinks.submit(shrink_finding, encode(choices), lineage.cap, v.coarse_signature()),
+                                      lineage, obs))
+                else:
+                    reported(shrink_and_record(runner, client, options, steps, lineage, choices, obs,
+                                               shrink_budget=shrink_budget, source_shrink_budget=source_shrink_budget,
+                                               language_version=language_version, verdict=verdict,
+                                               related_index=related_index, judge_findings=judge_findings,
+                                               findings_dir=findings_dir))
+        collect()
         if obs.new_probes > 0 and obs.timed_out:
             # a hang is not a parent (AFL keeps them out of its queue): its children inherit the
             # runaway, and one past the watchdog costs the wall limit plus a JVM restart
@@ -744,6 +845,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     # uses the client itself) before the next is submitted; the price is that the next program's
     # parent is picked from the corpus as it was before the run in flight.
     pool = ThreadPoolExecutor(1, thread_name_prefix="oxpecker-run") if pipeline and not generators else None
+    if shrink_process and client is not None:
+        shrinks = ProcessPoolExecutor(1, initializer=_shrinker_init,
+                                      initargs=(options, steps, language_version, shrink_budget, source_shrink_budget,
+                                                str(findings_dir), verdict, judge_findings, wall_ms))
     pending: tuple[Any, Any] | None = None
     drawers: ProcessPoolExecutor | None = None
     i = 0
@@ -802,7 +907,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         if pending is not None:
             process(pending[0], pending[1].result())
             pending = None
+        collect(wait=True)                           # the findings still being shrunk
     finally:
+        if shrinks is not None:
+            shrinks.shutdown(wait=False, cancel_futures=True)
         if pool is not None:
             pool.shutdown(wait=True)             # no request in flight when the coverage is saved
         if drawers is not None:

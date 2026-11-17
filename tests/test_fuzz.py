@@ -385,6 +385,34 @@ def test_compaction_keeps_the_probes_and_does_not_grow_the_entry():
 
 
 @pytest.mark.slow
+def test_findings_are_shrunk_and_recorded_in_their_own_process(tmp_path: Path):
+    """`shrink_process`: the loop hands a new finding to a process with its own JVM and goes on;
+    the run ends when the findings are shrunk, each with a reproducer no longer than what the
+    loop saw, and the log both processes append to holds whole lines."""
+    from oxpecker import HARNESS_BIN
+    from oxpecker.harness.client import HarnessClient
+    if not HARNESS_BIN.exists():
+        pytest.skip("harness not built: cd harness-java && ./gradlew fatJar")
+    out = tmp_path / "findings"
+    with HarnessClient(quiet=True, coverage=True) as client:
+        if not client.info().get("coverage"):
+            pytest.skip("coverage agent not attached")
+        summary = fuzz(corpus_dir=tmp_path / "corpus", options=GenOptions(), iterations=120, seed=1, client=client,
+                       findings_dir=out, known=set(), shrink_budget=10, source_shrink_budget=20, quiet=True,
+                       shrink_process=True)
+    stats = summary["stats"]
+    found = stats["new-findings"]
+    assert summary["runs"] == 120 and found > 0                     # nothing known: the first hard verdicts are new
+    assert stats.get("findings-unshrunk", 0) < found
+    reproducers = sorted(out.glob("hard-*.js"))
+    assert 1 <= len(reproducers) <= found                           # two findings can shrink to one signature
+    records = [json.loads(ln) for ln in (out / "hard.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(records) >= len(reproducers) and all(r["signature"] and r["source"] for r in records)
+    assert all(p.read_text(encoding="utf-8").startswith("// oxpecker-expect: hard") for p in reproducers)
+    assert min(len(p.read_text(encoding="utf-8").splitlines()) for p in reproducers) < 40      # shrunk: programs run to 90 lines
+
+
+@pytest.mark.slow
 def test_loop_runs_against_rhino(harness, tmp_path: Path):
     if not harness.info().get("coverage"):
         pytest.skip("coverage agent not attached (OXPECKER_COVERAGE=1)")
