@@ -43,8 +43,16 @@ python3.13 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 source .venv/bin/activate
 ```
 
-The Rhino version is `rhinoVersion` in `harness-java/gradle.properties`; a locally published
-snapshot works as well.
+That jar runs the default Rhino target, 1.9.2. Other targets are named in `rhino-targets.toml`
+(master at a pinned commit); `oxpecker build-harness master` builds Rhino and its harness, and
+`OXPECKER_RHINO=master` runs anything against it (`OXPECKER_RHINO=master pytest`,
+`OXPECKER_RHINO=master scripts/campaign.sh start ...`). `oxpecker xver FILES` compares the verdicts
+on every built target. To fuzz master with 1.9.2 as the oracle, where any mode whose outcome
+changed is a finding: `OXPECKER_RHINO=master OXPECKER_RHINO_BASELINE=1.9.2 scripts/campaign.sh start NAME HOURS`
+(or `oxpecker fuzz --against 1.9.2`).
+
+With Node 22, `npm install --prefix judge` installs engine262, which judges each new finding:
+it says which mode (or version) agrees with the spec. `oxpecker judge FILE...` judges files.
 
 ## First run
 
@@ -168,8 +176,8 @@ cases that are the end of a four-step mutation lineage; `oxpecker list` prints t
 
 Every confirmed bug is a file under `tests/regressions/` with a header that says what both modes
 do and which is right; `oxpecker diff <file>` replays it, and the test suite checks it stays
-detected. The seven under `master-only/` show on Rhino master `b95f75d` but not on the 1.9.2
-release.
+detected on every built Rhino target; a `// oxpecker-expect[master]: equal` header records one that
+master fixed (`oxpecker xver tests/regressions` shows which).
 
 ## Tests
 

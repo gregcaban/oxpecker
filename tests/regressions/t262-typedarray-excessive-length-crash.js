@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: equal
 // Rhino b95f75d: constructing a typed array from an array-like object whose `length` exceeds
 // what a Java array/ArrayBuffer can represent (`{ length: 2**53 }`) should throw a spec RangeError
 // during AllocateTypedArrayBuffer. Instead the allocation path raises a raw Java exception that

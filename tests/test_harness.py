@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from oxpecker import targets
 from oxpecker.harness.compare import DISCARD, EQUAL, HARD, JAVA_TYPES, SKIP, SOFT, compare_run
 
 REGRESSIONS = Path(__file__).parent / "regressions"
@@ -101,21 +102,21 @@ def test_language_version_is_honoured(harness):
 
 
 @pytest.mark.parametrize("path", sorted(REGRESSIONS.glob("*.js")), ids=lambda p: p.name)
-def test_known_regressions_are_detected(harness, path: Path):
-    """Every checked-in reproducer must still be a finding against the pinned Rhino. A
-    `// oxpecker-expect: <kind>` header names the expected verdict kind (default: hard)."""
+def test_known_regressions_are_detected(target_harness, rhino_target: str, path: Path):
+    """Every checked-in reproducer must still behave as expected on every built Rhino target: a
+    finding unless a `// oxpecker-expect[TARGET]: KIND` (or `// oxpecker-expect: KIND`) header says
+    otherwise. `oxpecker xver tests/regressions --headers` shows what the headers should be."""
     src = path.read_text()
-    first = src.splitlines()[0] if src else ""
-    expected = first.split("oxpecker-expect:", 1)[1].strip() if "oxpecker-expect:" in first else HARD
-    r = harness.run(src, source_name=path.name)
+    r = target_harness(rhino_target).run(src, source_name=path.name)
     v = compare_run(r)
-    assert v.kind == expected, v.pretty()
+    assert v.kind == targets.expected_kind(src, rhino_target), v.pretty()
 
 
 @pytest.mark.parametrize("path", sorted(SEEDS.glob("*.js")), ids=lambda p: p.name)
-def test_test262_known_divergences(harness, path: Path):
-    """The test262 cases Rhino marks as failing in one mode only (brief §2), adapted to run
-    standalone, must be reported as hard findings."""
-    r = harness.run(path.read_text(), source_name=path.name, language_version=250)
+def test_test262_known_divergences(target_harness, rhino_target: str, path: Path):
+    """The test262 cases Rhino 1.9.2 marks as failing in one mode only (brief §2), adapted to run
+    standalone, must be reported as hard findings, unless a header says a target fixed them."""
+    src = path.read_text()
+    r = target_harness(rhino_target).run(src, source_name=path.name, language_version=250)
     v = compare_run(r)
-    assert v.kind == HARD, v.pretty()
+    assert v.kind == targets.expected_kind(src, rhino_target), v.pretty()

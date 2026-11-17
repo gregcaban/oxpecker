@@ -165,19 +165,24 @@ class KnownIndex:
         return scored[:limit]
 
 
-def known_index(client: Any, regressions: Path = REGRESSIONS) -> KnownIndex:
+def known_index(client: Any, regressions: Path = REGRESSIONS, verdict: Any = compare_run) -> KnownIndex:
     """Runs every regression (tests/regressions/*.js) through the harness: their signatures are
     known, and with tests/known_signatures.txt they are what the loop does not record as new.
-    master-only/ regressions do not reproduce on the pinned Rhino; they are related by source only."""
+    `verdict` judges each run as the loop will (crossver.cross_verdict with a CrossClient); with
+    that, the known version changes (tests/version-changes/, master fixes) are known too.
+    Regressions in subdirectories are related by source only."""
     index = KnownIndex()
     for path in sorted(regressions.glob("*.js")):
         source = path.read_text(encoding="utf-8")
         run = client.run(source, source_name=path.name)
-        verdict = compare_run(run)
-        index.signatures.add(verdict.signature())
-        index.entries.append(Fingerprint.of(path.name, source, run, verdict))
+        v = verdict(run)
+        index.signatures.add(v.signature())
+        index.entries.append(Fingerprint.of(path.name, source, run, v))
     for path in sorted(regressions.glob("*/*.js")):
         index.entries.append(Fingerprint.of(f"{path.parent.name}/{path.name}", path.read_text(encoding="utf-8"), None, None))
+    if verdict is not compare_run:
+        for path in sorted((regressions.parent / "version-changes").glob("*.js")):
+            index.signatures.add(verdict(client.run(path.read_text(encoding="utf-8"), source_name=path.name)).signature())
     extra = regressions.parent / "known_signatures.txt"
     if extra.exists():
         index.signatures |= {ln.split("#", 1)[0].strip() for ln in extra.read_text().splitlines() if ln.split("#", 1)[0].strip()}

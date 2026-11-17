@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: equal
 // Rhino b95f75d: spread in a call expression is not rejected by the parser but neither evaluator
 // can compile it. Both modes throw a raw Java RuntimeException out of compileString (not a JS
 // SyntaxError), which a JS try/catch cannot intercept:

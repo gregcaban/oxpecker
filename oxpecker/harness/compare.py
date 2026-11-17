@@ -41,7 +41,7 @@ class Verdict:
         first = re.sub(r"@\d+", "@", first)
         first = re.sub(r'"-?\d+"', '"#"', first)          # numeric property keys
         # The same divergence surfaces as `value` (completion) or `trace[] arg` (a probe): one class.
-        first = re.sub(r"^(value|trace\[\] arg) ", "diff ", first)
+        first = re.sub(r"^(\S+->\S+ \w+: )?(value|trace\[\] arg) ", r"\1diff ", first)
         # Numbers become '#', except zero: -0 vs 0 is its own class of bug.
         first = re.sub(r"(?<![A-Za-z_#])(-?)(\d+(\.\d+)?(e[+-]?\d+)?)",
                        lambda m: m.group(1) + "0" if float(m.group(2)) == 0 else "#", first)
@@ -56,9 +56,12 @@ class Verdict:
         hold constant (values and lengths change while shrinking; the bug class should not)."""
         import re
         first = (self.reasons or self.java_type_diff or [""])[0]
+        # A cross-version difference (crossver) leads with `BASE->CAND MODE: `, kept: another bug class.
+        version = re.match(r"\S+->\S+ \w+: ", first)
+        pre, first = (version.group(0), first[version.end():]) if version else ("", first)
         m = re.match(r"(status \S+ vs \S+|thrown name|thrown value|value|trace\[\d+\]( arg\d+)?|trace length|output differs"
-                     r"|java\[\d+\]|java trace length|continuations|(\w+) crashed: [\w.$]+|java types differ|error messages differ)", first)
-        head = m.group(0) if m else first[:20]
+                     r"|java\[\d+\]|java trace length|continuations|([\w.@-]+) crashed: [\w.$]+|java types differ|error messages differ)", first)
+        head = pre + (m.group(0) if m else first[:20])
         head = re.sub(r"\[\d+\]", "[]", head)
         head = re.sub(r"arg\d+", "arg", head)
         return f"{self.kind}:{head}"

@@ -38,6 +38,12 @@ jobs:
       - name: Install oxpecker
         run: pip install -e '.[dev]'
 
+      - name: Node 22 and engine262 (the judge of findings)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --prefix judge
+
       - name: Run the tests
         env:
           OXPECKER_JAVA: ${{ env.JAVA_HOME }}/bin/java
@@ -50,3 +56,37 @@ jobs:
           name: oxpecker-harness
           path: harness-java/build/libs/oxpecker-harness-all.jar
           retention-days: 7
+
+  master:
+    name: Rhino master (the pinned commit in rhino-targets.toml)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Master is a moving target: what it fixes or breaks shows here, and does not block a merge.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install oxpecker
+        run: pip install -e '.[dev]'
+
+      - name: Build Rhino master and its harness jar
+        run: oxpecker build-harness master
+
+      - name: Run the tests on master
+        env:
+          OXPECKER_RHINO: master
+          OXPECKER_JAVA: ${{ env.JAVA_HOME }}/bin/java
+        run: pytest -q

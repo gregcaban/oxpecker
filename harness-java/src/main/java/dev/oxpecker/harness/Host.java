@@ -35,7 +35,7 @@ final class Host {
     final List<String> continuations = new ArrayList<>();
     private Callable canon;
     private Callable errName;
-    private ScriptableObject scope;
+    private Object scope;                 // opaque: Scopes knows this Rhino's scope type
 
     /** Canonical rendering of a value: text, Java leaf types, soft messages. */
     record Canonical(String text, String javaTypes, String soft) {}
@@ -44,12 +44,12 @@ final class Host {
      * Installs the host functions into {@code scope}. Compiles canon.js and prelude.js in
      * interpreter mode whatever {@code cx}'s mode is, then restores the mode.
      */
-    void install(Context cx, ScriptableObject scope, long seed) {
+    void install(Context cx, Object scope, long seed) {
         this.scope = scope;
         boolean wasInterpreted = cx.isInterpretedMode();
         RhinoCompat.setInterpreted(cx, true);
         try {
-            ScriptableObject global = RhinoCompat.globalThis(scope);
+            ScriptableObject global = Scopes.globalThis(scope);
 
             define(scope, "print", 1, (c, s, thisObj, args) -> {
                 StringBuilder sb = new StringBuilder();
@@ -93,7 +93,7 @@ final class Host {
             NativeObject helpers = new NativeObject();
             ScriptableObject.putProperty(helpers, "jtype", ScriptableObject.getProperty(global, "__jtype"));
             ScriptableObject.putProperty(helpers, "isProxy", ScriptableObject.getProperty(global, "__isProxy"));
-            ScriptableObject.putProperty(helpers, "javaClass", new LambdaFunction(scope, "javaClass", 1,
+            ScriptableObject.putProperty(helpers, "javaClass", Scopes.lambda(scope, "javaClass", 1,
                     (SerializableCallable) (c, s, t, args) -> args.length > 0 && args[0] instanceof Wrapper w
                             ? (w.unwrap() == null ? "null" : w.unwrap().getClass().getName())
                             : "?"));
@@ -102,24 +102,24 @@ final class Host {
             // The Java boundary (LiveConnect wrapping of a plain Java object; no Packages/reflection
             // beyond this one class). Static state is reset so modes don't see each other.
             JavaProbe.staticCounter = 0;
-            ScriptableObject.putProperty(global, "J", Context.javaToJS(java, scope, cx));
+            ScriptableObject.putProperty(global, "J", Scopes.javaToJS(java, scope, cx));
 
             Script canonScript = cx.compileString(CANON_SRC, "canon.js", 1, null);
-            Callable factory = (Callable) canonScript.exec(cx, scope, global);
-            Scriptable api = (Scriptable) factory.call(cx, scope, global, new Object[] {helpers});
+            Callable factory = (Callable) Scopes.exec(canonScript, cx, scope, global);
+            Scriptable api = (Scriptable) Scopes.call(factory, cx, scope, global, new Object[] {helpers});
             canon = (Callable) ScriptableObject.getProperty(api, "canon");
             errName = (Callable) ScriptableObject.getProperty(api, "errName");
 
             Script preludeScript = cx.compileString(PRELUDE_SRC, "prelude.js", 1, null);
-            Callable prelude = (Callable) preludeScript.exec(cx, scope, global);
-            prelude.call(cx, scope, global, new Object[] {(double) seed});
+            Callable prelude = (Callable) Scopes.exec(preludeScript, cx, scope, global);
+            Scopes.call(prelude, cx, scope, global, new Object[] {(double) seed});
         } finally {
             RhinoCompat.setInterpreted(cx, wasInterpreted);
         }
     }
 
     Canonical canon(Context cx, Object value) {
-        Object r = canon.call(cx, scope, Undefined.SCRIPTABLE_UNDEFINED, new Object[] {value});
+        Object r = Scopes.call(canon, cx, scope, Undefined.SCRIPTABLE_UNDEFINED, new Object[] {value});
         Scriptable arr = (Scriptable) r;
         return new Canonical(
                 ScriptRuntime.toString(ScriptableObject.getProperty(arr, 0)),
@@ -128,7 +128,7 @@ final class Host {
     }
 
     String errName(Context cx, Object value) {
-        Object r = errName.call(cx, scope, Undefined.SCRIPTABLE_UNDEFINED, new Object[] {value});
+        Object r = Scopes.call(errName, cx, scope, Undefined.SCRIPTABLE_UNDEFINED, new Object[] {value});
         return ScriptRuntime.toString(r);
     }
 
@@ -142,9 +142,9 @@ final class Host {
         return v != null && v.getClass().getName().startsWith("org.mozilla.javascript.NativeProxy");
     }
 
-    private static void define(ScriptableObject scope, String name, int length, SerializableCallable target) {
-        LambdaFunction f = new LambdaFunction(scope, name, length, target);
-        ScriptableObject.putProperty(RhinoCompat.globalThis(scope), name, f);
+    private static void define(Object scope, String name, int length, SerializableCallable target) {
+        LambdaFunction f = Scopes.lambda(scope, name, length, target);
+        ScriptableObject.putProperty(Scopes.globalThis(scope), name, f);
     }
 
     private static String resource(String name) {

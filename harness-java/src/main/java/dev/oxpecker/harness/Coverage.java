@@ -208,6 +208,7 @@ final class Coverage {
         }
         Map<String, int[]> packages = new TreeMap<>();   // pkg -> {mCov, mTot, bCov, bTot, lCov, lTot}
         Map<String, int[]> classes = new TreeMap<>();    // class -> {mCov, mTot}
+        Map<String, int[]> classLines = new TreeMap<>(); // every class, nested ones folded in -> {lCov, lTot, bCov, bTot}
         for (IClassCoverage cc : builder.getClasses()) {
             String name = cc.getName().replace('/', '.');
             String pkg = cc.getPackageName().replace('/', '.');
@@ -215,6 +216,9 @@ final class Coverage {
             add(p, 0, cc.getMethodCounter());
             add(p, 2, cc.getBranchCounter());
             add(p, 4, cc.getLineCounter());
+            int[] cl = classLines.computeIfAbsent(name.replaceAll("\\$.*", ""), k -> new int[4]);
+            add(cl, 0, cc.getLineCounter());
+            add(cl, 2, cc.getBranchCounter());
             boolean interesting = pkg.equals("org.mozilla.javascript.optimizer");
             for (String s : INTEREST) if (name.equals(s) || name.startsWith(s + "$")) interesting = true;
             if (interesting && cc.getMethodCounter().getCoveredCount() > 0) {
@@ -226,6 +230,7 @@ final class Coverage {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("packages", packages);
         out.put("classes", classes);
+        out.put("classLines", classLines);
         return out;
     }
 

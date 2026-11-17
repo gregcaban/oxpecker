@@ -5,8 +5,10 @@ mode and its **compiled** (JVM bytecode) mode, the observable results are canoni
 difference is a bug candidate, shrunk to a small reproducer. This document describes the system as
 it exists in the repository, not the brief it grew from (§2 lists where the two parted).
 
-Status: 2026-10-28. Rhino 1.9.2 from Maven Central (switched from master `b95f75d`, where the findings were
-made); 33 reproducers in `tests/regressions/` show on 1.9.2, 7 more under `master-only/` only on master.
+Status: 2026-11-11. Two Rhino targets (§4.10): 1.9.2 from Maven Central, the default, and master
+pinned at `4c3d79b` (2026-11-08); the findings were first made on master `b95f75d`. Of the 46
+reproducers in `tests/regressions/` and `tests/seeds/`, 28 show on both, 9 only on 1.9.2 (fixed on
+master), 6 only on master, and 3 differently on each.
 
 ## 1. Goal and scope
 
@@ -30,7 +32,7 @@ made); 33 reproducers in `tests/regressions/` show on 1.9.2, 7 more under `maste
 | continuations out of scope | in: `__pause()` host function, `continuations` toggle | interpreter-only feature = mode difference |
 | Java-type differences folded into "soft" | own verdict kind `java-types`, always reported, deduplicated, own property test | user: "don't discard it"; also: don't make it the only thing |
 | JS canonicaliser as the only option | JS canonicaliser (`canon.js`) plus Java-side runtime class recording | the representation is only visible from Java |
-| Rhino as composite build | Rhino built from `../rhino` and published to Maven local; `rhinoVersion` is one Gradle property; every version-sensitive call goes through `RhinoCompat` (reflective) | easy version bumps |
+| Rhino as composite build | Named Rhino targets (`rhino-targets.toml`), a release from Maven Central or a pinned git commit, one harness jar each from the same source (§4.10) | findings checked across versions |
 | pytest-xdist for throughput | not needed yet: ~15–60 cases/s per JVM | — |
 
 ## 3. Architecture
@@ -174,7 +176,121 @@ Self-consistency; isolation canaries (`globalThis.leak`, `Object.prototype` poll
 cases and modes); fallback detection with a 20k-statement function; small scripts really
 compiled; syntax/timeout/stack classification; determinism stubs; Java types reported per mode;
 thrown values canonicalised; language version honoured; every regression and seed still detected
-(a `// oxpecker-expect: <kind>` header names the expected verdict kind, default `hard`).
+on every built Rhino target (a `// oxpecker-expect: <kind>` header names the expected verdict
+kind, default `hard`; `// oxpecker-expect[TARGET]: <kind>` one target's).
+
+### 4.10 Rhino targets (`rhino-targets.toml`, `oxpecker/targets.py`)
+
+A target is a named Rhino: a release (`maven = "1.9.2"`) or a commit (`git`, `ref`, checked out
+and built under `build/rhino/NAME`). `oxpecker build-harness NAME` builds its harness jar,
+`harness-NAME.jar`, next to the others. `OXPECKER_RHINO=NAME` selects a target for a whole
+process: `bin/harness` runs its jar, the generators draw from its capability table
+(`oxpecker/environment/capabilities/NAME.json`, §6.5), golden files are its own
+(`tests/il/golden/NAME/`), campaigns record it (`runs/X/target.txt`) and minimise a corpus again for
+it (coverage is per Rhino build), and findings name it. Unset, it is the default target, whose jar
+is the plain `./gradlew fatJar`.
+
+One harness source serves every target. Calls whose methods differ between versions go through
+`RhinoCompat` by reflection (the evaluation-mode API, microtasks, script descriptors). Calls whose
+types differ cannot: in 2.0 a scope is a `VarScope`, no longer a `Scriptable`. They live in
+`Scopes`, an 8-method class compiled per API line (`src/rhino1`, `src/rhino2`, chosen from the
+target), and the shared code holds the scope as an `Object`. A new line is only needed when a
+release breaks signatures again.
+
+`oxpecker xver PATH...` runs files on every built target and prints each verdict and what changed
+against the first: `fixed on master`, `new on master`, `changed`. `--write-headers` adds the
+`oxpecker-expect[TARGET]` lines a reproducer needs after a deliberate bump of a pinned commit. The
+test suite runs the reproducers on every built target, and CI runs the whole suite on master as
+well, without blocking a merge.
+
+**The last release as an oracle** (`oxpecker/crossver.py`). `oxpecker fuzz --against 1.9.2`, under
+`OXPECKER_RHINO=master` (or `OXPECKER_RHINO_BASELINE=1.9.2 scripts/campaign.sh start ...`), runs
+every program on both targets, in both modes each, the baseline's JVM in parallel with the
+candidate's. Coverage comes from the candidate only. A mode whose outcome changed between the two
+is a hard finding even when the candidate's modes agree with each other: a regression that breaks
+both modes alike is invisible to the mode oracle. Its reason leads with `1.9.2->master MODE: `,
+and so does its coarse signature, so the shrinkers hold it as its own bug class. When the
+baseline's modes disagreed and the candidate's changed mode now does what the other one did, the
+change is a fix (`fixed`): counted in the stats, not recorded. The candidate's own mode comparison
+still runs, so bugs both versions share are reported as before. The generators draw from what both
+capability tables have (`environment.intersect`), so a builtin only master has (`Float16Array`,
+the leaked `ArrayIterator`) is not a difference. A finding's reproducer expects each target's own
+two-mode verdict (`oxpecker-expect[1.9.2]`, `[master]`) and replays with
+`oxpecker xver --targets 1.9.2,master`, whose `version` column shows this same verdict.
+
+Most of what the first two 15-minute campaigns (2026-11-11) reported were changes master made on
+purpose. Two kinds are handled differently:
+- **Implementation-defined or cosmetic:** rewritten the same way on both sides before comparing
+  (`crossver.VERSION_CANON`). These are function source text, the newline 1.9.2 puts after a
+  native function's source, `4.9e-324` vs `5e-324`, and the order of `Math`'s or `JSON`'s own
+  properties.
+- **Behaviour master fixed:** kept as reproducers in `tests/version-changes/`, with a note on the
+  spec step. The loop counts their signatures as known, and a test fails when one stops
+  differing. These are `arr.length = undefined` (RangeError), regexp instances' own flag
+  properties, and a `let` loop's binding seen after resuming a continuation.
+
+engine262 (§4.11) now tells a fix from a regression for the programs it can run.
+
+### 4.11 engine262 as the judge of findings (`oxpecker/judge.py`, `judge/host.mjs`)
+
+Two Rhino modes, or two Rhino versions, that disagree say there is a bug, not which side has it.
+engine262 implements ECMA-262 step by step in JavaScript. Every new finding, once shrunk, runs on
+it once more, so the spec has a vote. Only findings are judged: engine262 is orders of magnitude
+slower than Rhino. `judge/host.mjs` (Node, engine262 pinned in `judge/package.json`,
+`npm install --prefix judge`) runs a case as the Java host does. It loads the same `canon.js`
+and `prelude.js` inside engine262 and defines `__probe` and `print` over them, and it writes one
+outcome in the harness's JSON shape, so outcomes compare like two modes.
+
+**Judged only where the sides differ.** Rhino differs from the spec in places every program
+touches: an own `arity` and `arguments` on every function, decompiled source text. Comparing
+whole outcomes would call every mode wrong. Each outcome is split into observations: status
+with error name, thrown value, completion value, each probe argument, each output line. The
+judge looks only at those where the two sides of the finding differ, and asks which side
+engine262 matches. When neither matches exactly, it takes the side whose differing text, with
+its surroundings, engine262's output contains. When the modes agree with each other (both crash
+alike), only their status is judged.
+
+Labels:
+- `compiled-wrong`, `interpreted-wrong`, `all-wrong`.
+- For a cross-version difference (§4.10): `regression` (1.9.2 agreed with the spec, master
+  does not) or `fix`.
+- `rhino-extension`: engine262 rejects the syntax, or throws a ReferenceError for a Rhino-only
+  global such as `CallSite`.
+- `inconclusive`, and `not-judged` for programs that use Java (`J`), continuations or
+  LiveConnect.
+
+The label goes into the finding's jsonl record (`judge`), its reproducer header
+(`// engine262: ...`) and the loop's stats (`judged-LABEL`). `oxpecker fuzz` judges when
+`judge/` is installed (`--no-judge` turns it off). `oxpecker judge FILE... [--against 1.9.2]`
+judges files.
+
+Measured on 2026-11-13, over the 46 regressions and seeds on 1.9.2: 16 compiled-wrong,
+6 interpreted-wrong, 12 all-wrong, 5 Rhino extensions, 3 inconclusive, 4 not judged. Each
+agrees with the hand triage of the findings-status note. On master against 1.9.2, the four
+judgeable version changes of §4.10 are all `fix`.
+
+### 4.12 What a run covered (`oxpecker/coverage.py`)
+
+A run reports how much of Rhino it reached, so its length can be judged:
+- **JaCoCo's analysis of the Rhino jar at the end** (`last-run.json` `coverage`, printed by
+  `oxpecker fuzz`): lines, branches and methods over every class in the jar, loaded or not.
+  A second figure leaves out what the harness cannot reach (CommonJS modules, serialization,
+  the debugger API). It also lists per package and the classes with the most lines never run.
+  The probe total that came before counted only the classes loaded so far.
+- **A coverage curve** (`corpus/coverage.jsonl`, the covered probes every 30 s, from the
+  harness's `coverage-count`). It is fitted as covered = a + b ln t. The run is judged by what
+  doubling its length would add (b ln 2), as a share of what is covered: under 1% plateaued,
+  under 5% slowing down, otherwise still growing.
+
+`oxpecker coverage runs/NAME` prints both, for a live run too (`campaign.sh status` calls it).
+For a run from before the curve existed, it analyses the run's `coverage.exec` on the run's
+target and rebuilds an approximate curve from `fuzz.log`.
+
+On 1.9.2 (2026-11-17), the three-hour fresh campaign of 2026-11-02 reached 56% of the lines
+and 47% of the branches; a ten-minute run reached 50% and 39%. Both curves were slowing down:
+doubling would add about 3%. The low figure is about what the generators produce, not how long
+they run. The classes with the most lines never run are NativeRegExp, Parser, ScriptRuntime,
+TokenStream, the Interpreter, NativeString and NativePromise (450 of 468 lines never run).
 
 ## 5. Comparison rules (`compare.py`)
 
@@ -253,8 +369,11 @@ the top-level list and probes after each statement.
 `oxpecker probe` runs `probe.js` through the harness (globals, constructors, prototype and
 static members with arities, including `%TypedArray%.prototype`) and runs ~50 syntax snippets as
 individual two-mode cases (a parse difference or crash between modes is itself a finding — this
-is how the call-spread crash was found). The table is cached in `rhino-capabilities.json`; the
-`api` generators draw from it, so a Rhino upgrade only needs a re-probe. Fuzzilli's
+is how the call-spread crash was found). The table is cached per Rhino target in
+`capabilities/TARGET.json`; the `api` generators draw from the current target's, so a new target
+or an upgrade only needs `oxpecker probe --target NAME`. Master's differs from 1.9.2's: no
+`__GeneratorFunction`, `With` or `Call` (1.9.2 internals visible as globals), `Float16Array` and
+`SharedArrayBuffer` added, rest parameters and `new.target` supported. Fuzzilli's
 `JavaScriptEnvironment`/TypeScript lib approach was not needed.
 
 ### 6.6 Randomness backends (`gen/rand.py`)

@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino 1.9.2: a `with` statement whose object is a LiveConnect wrapper of a Java object (the
 // harness's `J`, a Java array such as `J.intArray(2)`, a Java string returned by a Java method)
 // crashes the compiled mode at the first unqualified name read inside the block, whether the

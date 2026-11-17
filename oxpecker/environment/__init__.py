@@ -1,7 +1,8 @@
-"""Environment model: what builtins this Rhino build exposes (constructors, prototype methods,
+"""Environment model: what builtins a Rhino build exposes (constructors, prototype methods,
 namespaces, syntax), discovered by running probe.js through the harness once and cached in
-rhino-capabilities.json next to this file. The API generators draw from it, so a Rhino upgrade
-only needs `oxpecker probe` to refresh the model."""
+capabilities/TARGET.json next to this file, one table per Rhino target (rhino-targets.toml). The
+API generators draw from the current target's (OXPECKER_RHINO), so a new target or a Rhino upgrade
+only needs `oxpecker probe --target NAME` to write its model."""
 
 from __future__ import annotations
 
@@ -9,9 +10,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .. import targets
+
 HERE = Path(__file__).resolve().parent
 PROBE_JS = HERE / "probe.js"
-CACHE = HERE / "rhino-capabilities.json"
+CACHE = targets.capabilities(targets.current())   # the current target's table
 
 # Builtins the generators should not poke at: host/harness objects, and things whose calls
 # are either meaningless or nondeterministic here.
@@ -84,6 +87,22 @@ def load(path: Path = CACHE) -> dict[str, Any] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def intersect(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """What both tables have: the builtins, members and syntax a program may use when it runs on
+    both Rhinos (crossver), so a builtin only one of them has does not show as a difference."""
+    def members(x: dict[str, list[str]], y: dict[str, list[str]]) -> dict[str, list[str]]:
+        return {k: [m for m in v if m in set(y[k])] for k, v in x.items() if k in y}
+    return {**a,
+            "rhino": f"{a.get('rhino')} & {b.get('rhino')}",
+            "constructors": {k: v for k, v in a.get("constructors", {}).items() if b.get("constructors", {}).get(k) == v},
+            "globals": {k: v for k, v in a.get("globals", {}).items() if b.get("globals", {}).get(k) == v},
+            "protos": members(a.get("protos", {}), b.get("protos", {})),
+            "statics": members(a.get("statics", {}), b.get("statics", {})),
+            "syntax": {k: {**v, "supported": bool(v.get("supported") and b.get("syntax", {}).get(k, {}).get("supported"))}
+                       for k, v in a.get("syntax", {}).items()},
+            "unreadable": sorted(set(a.get("unreadable", [])) | set(b.get("unreadable", [])))}
 
 
 def method_table(table: dict[str, Any]) -> dict[str, list[tuple[str, int]]]:

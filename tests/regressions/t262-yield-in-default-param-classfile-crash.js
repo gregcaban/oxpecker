@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: skip
 // Rhino b95f75d: per spec, a `yield` expression inside a parameter default initializer of a
 // function that is itself a generator (or an arrow/nested function whose parameters belong to a
 // generator context) is an early SyntaxError. Rhino does not enforce that early error: it parses

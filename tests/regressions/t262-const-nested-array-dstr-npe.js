@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: equal
 // Rhino b95f75d: a C-style `for` loop whose head is a `const` declaration with a *nested* array
 // destructuring pattern that has a default (`const [[x] = [1]] = []`) crashes both evaluators
 // while setting up the loop's per-iteration const bindings:

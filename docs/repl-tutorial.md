@@ -149,7 +149,7 @@ The builder's methods are listed in `oxpecker/il/builder.py`: value constructors
 `load_string`, `builtin`, ...), operations (`unary`, `binary`, `compare`, `get_property`,
 `call_method`, ...), control blocks (`plain_function`, `arrow_function`, `if_`, `while_loop`,
 `for_loop`, `for_each`, `repeat`, `try_`, `switch`, `object_literal`, `with_`, `code_string`).
-`Builtins`, `Methods` and `Keys` are the typed environment from `rhino-capabilities.json`:
+`Builtins`, `Methods` and `Keys` are the typed environment from `capabilities/TARGET.json` (the current Rhino target's):
 `Builtins.MATH`, `Methods.MATH_ABS`, `Keys.LENGTH`; `b.builtin(...)` loads one, `b.call_method`
 takes the `Method`. Queries while building: `b.visible()`, `b.pool(NUMBER).exact`,
 `b.type_of(v)`, `b.context`, `b.in_function`, `b.rhino` (the model so far). `dump`, `js`,

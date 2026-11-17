@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino b95f75d: a generator method defined in an object literal (`{ *method() {} }.method`)
 // gets a `.prototype` property in interpreted mode (though its `[[Prototype]]` is plain
 // Object.prototype rather than %GeneratorPrototype% as the spec requires), but gets *no*

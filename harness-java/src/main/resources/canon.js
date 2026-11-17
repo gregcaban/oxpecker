@@ -12,7 +12,10 @@
 (function (helpers) {
   'use strict';
   var jtype = helpers.jtype;        // Java host: simple class name of the Java object
-  var isProxy = helpers.isProxy;    // Java host: instanceof NativeProxy
+  var isNativeProxy = helpers.isProxy;    // Java host: instanceof NativeProxy
+  // 1.9.2's Proxy constructor is itself a NativeProxy class (a lambda in it): a proxy is anything else
+  var ProxyCtor = typeof Proxy === 'function' ? Proxy : null;
+  function isProxy(v) { return v !== ProxyCtor && isNativeProxy(v); }
   var MAX_DEPTH = 8, MAX_NODES = 600, MAX_ARRAY = 200, MAX_STRING = 400;
 
   var ownKeys = Reflect.ownKeys;

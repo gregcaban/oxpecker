@@ -1,7 +1,7 @@
 # The registry shape follows Fuzzilli's JavaScriptEnvironment.swift (Copyright 2019-2025 Google
 # LLC, Apache License 2.0; commit be2811d00282320381fc8007d64873745772011d): object groups with
 # typed properties and method signatures, builtins registered with types. The data comes from
-# oxpecker's own probe of Rhino (rhino-capabilities.json) plus the hand-typed overlay below.
+# oxpecker's own probe of Rhino (environment/capabilities/TARGET.json) plus the hand-typed overlay below.
 # See THIRD_PARTY_NOTICES.md and docs/licenses/Apache-2.0.txt.
 """Typed registries of what Rhino exposes: builtins, property keys, methods, value pools.
 
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .. import environment as probe
+from .. import targets
 from .types import (
     ANY,
     ARRAY,
@@ -243,7 +244,13 @@ _EXCLUDED_FROM_API = probe.EXCLUDED_GLOBALS
 def _load_table(path: Path = RHINO_TABLE_PATH) -> dict[str, Any]:
     table = probe.load(path)
     if table is None:
-        raise RuntimeError(f"capability table missing: {path}; run `oxpecker probe`")
+        raise RuntimeError(f"capability table missing: {path}; run `oxpecker probe --target {path.stem}`")
+    from ..crossver import baseline
+    if path == RHINO_TABLE_PATH and baseline():      # comparing two Rhinos: what both have
+        other = probe.load(targets.capabilities(baseline()))
+        if other is None:
+            raise RuntimeError(f"capability table missing for baseline {baseline()}; run `oxpecker probe --target {baseline()}`")
+        table = probe.intersect(table, other)
     return table
 
 

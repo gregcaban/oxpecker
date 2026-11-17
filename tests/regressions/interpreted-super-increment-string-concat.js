@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: equal
 // Rhino b95f75d: `super.x++` where the inherited value is a string does string concatenation in
 // the interpreter ("a" -> "a1") instead of ToNumber ("a" -> NaN, as compiled mode does).
 // Related to tests/regressions/interpreted-computed-super-update.js (++super[k] returns the key).

@@ -1,3 +1,4 @@
+// oxpecker-expect[master]: java-types
 // Rhino b95f75d: update expressions through a computed super reference are wrong in the
 // interpreter. `++super[k]` evaluates to the *key* ("p") instead of 2, and `super[k]--` leaves an
 // own property "0" with value "p" on the receiver. Compiled mode is correct. Same area as the

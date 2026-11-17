@@ -109,7 +109,7 @@ hash ignoring provenance), `dump(x)` for anything with `.code`.
 
 ### `environment.py` (456) — the registries
 
-Built at import from `oxpecker/environment/rhino-capabilities.json` (what `oxpecker probe`
+Built at import from the current Rhino target's `oxpecker/environment/capabilities/TARGET.json` (what `oxpecker probe`
 found in Rhino) plus a hand-written overlay (types the probe cannot see, the harness's host
 objects `J`, `__pause`, `Continuation`, `eval`, `Function`, `globalThis`). Three namespaces:
 

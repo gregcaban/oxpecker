@@ -1,8 +1,9 @@
 """The golden twenty (design §10 item 5): the lifted source of twenty seeded programs, checked
 in under tests/il/golden/. A change in any generator, the lifter or the strategies changes them;
-the diff is the review. Regenerate deliberately with
+the diff is the review. What is drawn depends on the Rhino target's capability table, so a target
+other than the default has its own, under golden/TARGET/. Regenerate deliberately with
 
-    OXPECKER_UPDATE_GOLDEN=1 pytest tests/il/test_golden.py
+    OXPECKER_UPDATE_GOLDEN=1 pytest tests/il/test_golden.py        # OXPECKER_RHINO=master ... for master's
 """
 
 from __future__ import annotations
@@ -13,9 +14,12 @@ from pathlib import Path
 import pytest
 
 import oxpecker.il.templates  # noqa: F401
+from oxpecker import targets
 from oxpecker.il.strategies import generate
 
 GOLDEN = Path(__file__).parent / "golden"
+if targets.current() != targets.default():
+    GOLDEN = GOLDEN / targets.current()
 SEEDS = list(range(20))
 OPTIONS = dict(max_statements=8, max_depth=3)
 
@@ -25,7 +29,7 @@ def test_golden_lifted_program(seed: int):
     path = GOLDEN / f"seed_{seed:02d}.js"
     source = generate(seed, **OPTIONS).source
     if os.environ.get("OXPECKER_UPDATE_GOLDEN"):
-        GOLDEN.mkdir(exist_ok=True)
+        GOLDEN.mkdir(parents=True, exist_ok=True)
         path.write_text(source, encoding="utf-8")
     assert path.exists(), f"no golden file for seed {seed}; run with OXPECKER_UPDATE_GOLDEN=1"
     expected = path.read_text(encoding="utf-8")

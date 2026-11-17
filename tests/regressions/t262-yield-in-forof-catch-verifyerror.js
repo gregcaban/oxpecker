@@ -1,3 +1,4 @@
+// oxpecker-expect[1.9.2]: equal
 // Rhino b95f75d: a generator with a `for-of` loop whose body's `try/catch` yields from the
 // `catch` block compiles to bytecode the JVM verifier rejects, but only once enough other
 // top-level declarations precede it to shift local-variable slot numbering (the exact slot the
