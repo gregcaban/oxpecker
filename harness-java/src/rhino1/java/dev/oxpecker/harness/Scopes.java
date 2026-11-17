@@ -71,6 +71,11 @@ final class Scopes {
         return cx.newObject((Scriptable) scope);
     }
 
+    /** The {@code this} for a call on a symbol value: 1.x symbol values are objects already. */
+    static Object symbolThis(Context cx, Object scope, Object symbol) {
+        return symbol;
+    }
+
     static Object resumeContinuation(Context cx, Object continuation, Object scope, Object result) {
         return cx.resumeContinuation(continuation, (Scriptable) scope, result);
     }

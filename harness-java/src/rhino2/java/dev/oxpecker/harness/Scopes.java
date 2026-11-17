@@ -69,6 +69,13 @@ final class Scopes {
         return (ScriptableObject) cx.newObject((VarScope) scope);
     }
 
+    /** The {@code this} for a call on a symbol value: 2.0 symbol values are bare SymbolKeys, and the
+     *  builtins' getters cast {@code this} to Scriptable, so it is boxed as a script's call would. */
+    static Object symbolThis(Context cx, Object scope, Object symbol) {
+        if (symbol instanceof org.mozilla.javascript.Scriptable) return symbol;
+        return org.mozilla.javascript.ScriptRuntime.toObject(cx, (VarScope) scope, symbol);
+    }
+
     static Object resumeContinuation(Context cx, Object continuation, Object scope, Object result) {
         return cx.resumeContinuation(continuation, (VarScope) scope, result);
     }

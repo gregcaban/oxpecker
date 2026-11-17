@@ -560,14 +560,14 @@ final class JavaCanon {
         if (!Undefined.isUndefined(reg)) return "Symbol.for(" + json(cx, reg) + ")";
         Object d;
         try {
-            d = symDesc != null ? call(cx, symDesc, s) : Undefined.instance;
+            d = symDesc != null ? call(cx, symDesc, symbolThis(cx, s)) : Undefined.instance;
         } catch (RuntimeException e) {
             if (!catchable(cx, e)) throw e;
             d = Undefined.instance;
         }
         if (Undefined.isUndefined(d)) {
             try {
-                return ScriptRuntime.toString(call(cx, symToString, s));
+                return ScriptRuntime.toString(call(cx, symToString, symbolThis(cx, s)));
             } catch (RuntimeException e) {
                 if (!catchable(cx, e)) throw e;
                 return "Symbol(?)";
@@ -591,6 +591,13 @@ final class JavaCanon {
             if (plain) return "\"" + cs + "\"";
         }
         return ScriptRuntime.toString(call(cx, jsonStringify, UNDEF, v));
+    }
+
+    /** The {@code this} of a call on a symbol, as {@code f.call(sym)} passes it from a script: a symbol
+     *  value is a Scriptable on Rhino 1.9.2 and a bare SymbolKey on master, where the builtins' own
+     *  getters cast {@code this} to Scriptable (a ClassCastException, not a script error). */
+    private Object symbolThis(Context cx, Object s) {
+        return Scopes.symbolThis(cx, scope, s);
     }
 
     private Object call(Context cx, Callable f, Object thisObj, Object... args) {
