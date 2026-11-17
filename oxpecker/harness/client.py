@@ -125,6 +125,12 @@ class ModeClients:
     def info(self) -> dict[str, Any]:
         return self.clients[self.modes[0]].info()
 
+    def coverage_count(self) -> int:
+        """The JVMs' covered probes added up, as `coverage_save` returns them: code both modes
+        reach counts twice, so the curve over a run is in these units throughout, and the
+        report at its end gives the union."""
+        return sum(self._each(lambda m, c: c.coverage_count()).values())
+
     def coverage_save(self, path: str) -> int:
         return sum(self._each(lambda m, c: c.coverage_save(self._path(m, str(path)))).values())
 

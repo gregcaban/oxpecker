@@ -43,7 +43,7 @@ from hypothesis.errors import HypothesisException, StopTest, UnsatisfiedAssumpti
 from hypothesis.internal.conjecture.data import ConjectureData
 
 import oxpecker.il.templates  # noqa: F401  (registration)
-from . import findings
+from . import coverage, findings
 from .harness.compare import HARD, JAVA_TYPES, SOFT, Verdict, compare_run
 from .il.mutate import Lineage, evolved
 from .il.options import GenOptions
@@ -579,6 +579,11 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if not quiet:
                 print(f"resumed: {len(corpus.entries)} corpus entries, {covered} probes already covered", file=sys.stderr)
 
+    curve: list[dict[str, Any]] = []           # coverage over time (coverage.CURVE), this run's rows
+    last_curve = t0
+    if client is not None:
+        curve.append(coverage.append_row(corpus.dir, t0, 0, len(corpus.entries), client.coverage_count(), 0, start=True))
+
     lineages = LineageCache()
     lineages.fit(len(corpus.entries))
     pickled: OrderedDict[int, bytes] = OrderedDict()   # with generators: entry id -> its lineage, pickled where it was drawn
@@ -624,7 +629,7 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
     def process(job: tuple[Entry | None, Lineage | None, Lineage, Choices], obs: Observation) -> None:
         """What a run showed: the verdict counted, a finding shrunk and recorded, new probes into
         the corpus."""
-        nonlocal weights, last_report, last_checkpoint
+        nonlocal weights, last_report, last_checkpoint, last_curve
         parent, base_lineage, lineage, choices = job
         v = obs.verdict
         stats[v.kind] += 1
@@ -721,6 +726,10 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                 # the last one for new again, which costs a few entries the corpus already has.
                 client.coverage_save(str(corpus.exec))
                 last_checkpoint = time.time()
+        if client is not None and time.time() - last_curve >= coverage.CURVE_EVERY_S:
+            last_curve = time.time()
+            curve.append(coverage.append_row(corpus.dir, t0, i, len(corpus.entries), client.coverage_count(),
+                                             stats["new-findings"]))
         if not quiet and time.time() - last_report > 10:
             last_report = time.time()
             rate = i / (last_report - t0)
@@ -800,7 +809,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             drawers.shutdown(wait=False, cancel_futures=True)
         report: dict[str, Any] = {}
         if client is not None:
-            client.coverage_save(str(corpus.exec))
+            covered = client.coverage_save(str(corpus.exec))
+            curve.append(coverage.append_row(corpus.dir, t0, i, len(corpus.entries), covered, stats["new-findings"]))
             try:
                 report = client.coverage_report()
             except Exception:
@@ -818,7 +828,8 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
                "signatures": dict(sig_counts), "coveredProbes": report.get("coveredProbes"),
                "totalProbes": report.get("totalProbes"), "steps": steps, "max_depth": max_depth, "p_new": p_new,
                "max_entry_depth": max((len(e.steps) for e in corpus.entries), default=0),
-               "mutators": mutator_stats}
+               "mutators": mutator_stats,
+               "coverage": coverage.summarize(report, curve) if report else None}
     (corpus.dir / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     return summary
 
