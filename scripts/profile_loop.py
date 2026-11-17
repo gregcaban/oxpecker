@@ -36,6 +36,7 @@ from random import Random
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from oxpecker import fuzz as fz                       # noqa: E402
+from oxpecker import judge                            # noqa: E402
 from oxpecker.harness import client as hc             # noqa: E402
 from oxpecker.harness.compare import compare_run      # noqa: E402
 from oxpecker.il.options import GenOptions            # noqa: E402
@@ -189,7 +190,7 @@ def cmd_loop(args) -> None:
         started = time.perf_counter()
         summary = fz.fuzz(corpus_dir=corpus, options=GenOptions(), seconds=args.seconds, seed=args.seed,
                           known=index.signatures, related_index=index, findings_dir=out / "findings",
-                          client=client, runner=runner, quiet=True, verdict=verdict, judge_findings=False,
+                          client=client, runner=runner, quiet=True, verdict=verdict, judge_findings=judge.available(),
                           pipeline=not args.no_pipeline, generators=args.workers, shrink_process=args.shrink_process)
         wall = time.perf_counter() - started
     rows = [(k, v, t.calls[k]) for k, v in t.total.items()]
@@ -208,6 +209,8 @@ def cmd_loop(args) -> None:
           f"({100 * sum(r[0] for r in slow) / wall:.1f} % of the wall)")
     print("statuses (interpreted,compiled):", dict(statuses.most_common(8)))
     print("stats:", {k: v for k, v in summary["stats"].items() if not k.startswith("judged")})
+    print("engine262:", {k[len("judged-"):]: v for k, v in summary["stats"].items() if k.startswith("judged")}
+          or ("no new findings" if judge.available() else "not installed (npm install --prefix judge)"))
     (out / "loop.json").write_text(json.dumps({
         "wall": wall, "iterations": summary["runs"], "harness_runs": len(round_trips), "seed_corpus": args.seed_corpus,
         "phases": {k: {"seconds": v, "calls": n} for k, v, n in rows}, "statuses": dict(statuses),

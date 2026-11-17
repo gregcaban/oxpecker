@@ -771,7 +771,26 @@ each (the two continuation signatures aside):
     which the harness reports as a crash when the script does not catch it. Inside
     `try`/`catch` both modes agree.
 
- are too fine when the probe prints an object (every
+**Judged on engine262 afterwards** (`oxpecker judge` on the 49 shrunk programs; in `oxpecker
+fuzz` the shrink process judges each finding itself, and `scripts/profile_loop.py` now does
+too when `judge/` is installed):
+
+| label | count | what they are |
+|---|---|---|
+| compiled-wrong | 18 | 3.4 seven times, 3.3 four, 3.2 three, 5.10 three, the generator `let` crash of 5.3 |
+| interpreted-wrong | 10 | 5.1: the write-back eight times, the wrong receiver twice |
+| all-wrong | 3 | both modes crash where engine262 runs or throws a `TypeError`: the `Date` assertion, `TypedArray.set()`, `new Int8Array(2147483646)` |
+| not-judged | 16 | 13 use Java (`J`), one continuations, two engine262 could not run (the 2^31-length array timed out after 60 s, the doubled string is too long for it) |
+| inconclusive | 2 | two of the overload-order artefacts: in one JVM the modes agree |
+
+Every judged label agrees with the family's "right" column in §2. Of the new regressions,
+the `Date` crash is all-wrong, `super` in a `with` block compiled-wrong, and the other two are
+not judged (timeout, Java). One shrunk program, `min/hard-e662570ac4.js` (3.4, a BigInt stored
+into a number-typed local), replays as equal although the 260-line original still shows the
+difference: `oxpecker shrink` kept a candidate that no longer reproduces, which needs looking
+at.
+
+Two lessons that repeat: exact signatures are too fine when the probe prints an object (every
 prototype shape is a new signature for one bug) and too coarse when only the status differs
 (unrelated compiled-mode throws share one), so the first program per signature in `hard.jsonl`
 is what to read after a campaign; and a reproducer that prints a host object is a harness
