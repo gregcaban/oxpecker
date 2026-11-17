@@ -7,7 +7,7 @@
 #                                                               OXPECKER_RHINO=TARGET runs on that Rhino target;
 #                                                               OXPECKER_RHINO_BASELINE=TARGET also runs every program
 #                                                               there, a changed mode being a finding (fuzz --against)
-#   scripts/campaign.sh status NAME                             pid liveness, last progress lines, findings
+#   scripts/campaign.sh status NAME                             pid liveness, last progress lines, findings, coverage
 #   scripts/campaign.sh stop NAME                               stop the run
 #   scripts/campaign.sh extract NAME                            findings/hard.jsonl entries -> runs/NAME/unreduced/*.js
 #   scripts/campaign.sh reduce NAME FILE... [-- BUDGET]          replay each file (oxpecker diff), shrink the ones that reproduce
@@ -87,6 +87,8 @@ status)
     tail -n "${3:-5}" "$OUT/fuzz.log"
     echo "findings recorded:"
     ls "$OUT/findings" 2>/dev/null || echo "  (none)"
+    # while running: the curve so far (cheap); once over: the run's own JaCoCo summary
+    . .venv/bin/activate && if alive; then oxpecker coverage "$OUT" --no-analyse --no-curve; else oxpecker coverage "$OUT" --no-curve; fi
     ;;
 stop)
     # the job is `sh -c "cmin && exec fuzz"`: while cmin runs, it is the shell's child

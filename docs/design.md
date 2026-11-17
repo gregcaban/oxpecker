@@ -269,6 +269,29 @@ Measured on 2026-11-13, over the 46 regressions and seeds on 1.9.2: 16 compiled-
 agrees with the hand triage of the findings-status note. On master against 1.9.2, the four
 judgeable version changes of §4.10 are all `fix`.
 
+### 4.12 What a run covered (`oxpecker/coverage.py`)
+
+A run reports how much of Rhino it reached, so its length can be judged:
+- **JaCoCo's analysis of the Rhino jar at the end** (`last-run.json` `coverage`, printed by
+  `oxpecker fuzz`): lines, branches and methods over every class in the jar, loaded or not.
+  A second figure leaves out what the harness cannot reach (CommonJS modules, serialization,
+  the debugger API). It also lists per package and the classes with the most lines never run.
+  The probe total that came before counted only the classes loaded so far.
+- **A coverage curve** (`corpus/coverage.jsonl`, the covered probes every 30 s, from the
+  harness's `coverage-count`). It is fitted as covered = a + b ln t. The run is judged by what
+  doubling its length would add (b ln 2), as a share of what is covered: under 1% plateaued,
+  under 5% slowing down, otherwise still growing.
+
+`oxpecker coverage runs/NAME` prints both, for a live run too (`campaign.sh status` calls it).
+For a run from before the curve existed, it analyses the run's `coverage.exec` on the run's
+target and rebuilds an approximate curve from `fuzz.log`.
+
+On 1.9.2 (2026-11-17), the three-hour fresh campaign of 2026-11-02 reached 56% of the lines
+and 47% of the branches; a ten-minute run reached 50% and 39%. Both curves were slowing down:
+doubling would add about 3%. The low figure is about what the generators produce, not how long
+they run. The classes with the most lines never run are NativeRegExp, Parser, ScriptRuntime,
+TokenStream, the Interpreter, NativeString and NativePromise (450 of 468 lines never run).
+
 ## 5. Comparison rules (`compare.py`)
 
 | situation | verdict |

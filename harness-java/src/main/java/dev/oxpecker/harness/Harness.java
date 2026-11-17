@@ -100,6 +100,12 @@ public final class Harness {
                         resp.put("error", cmd + " failed: " + e);
                     }
                 }
+                case "coverage-count" -> {
+                    // cheap, for a coverage curve: no file written, no analysis of the Rhino jar
+                    if (!runner.coverage.enabled()) resp.put("error", "coverage agent not attached");
+                    resp.put("coveredProbes", runner.coverage.coveredProbes());
+                    resp.put("totalProbes", runner.coverage.totalProbes());
+                }
                 case "coverage" -> {
                     try {
                         resp.put("coverage", runner.coverage.report());

@@ -144,6 +144,13 @@ class HarnessClient:
             raise HarnessError(resp["error"])
         return int(resp["coveredProbes"])
 
+    def coverage_count(self) -> int:
+        """Probes covered so far (the cumulative store, a loaded checkpoint included); cheap."""
+        resp = self._request({"cmd": "coverage-count"})
+        if "error" in resp:
+            raise HarnessError(resp["error"])
+        return int(resp["coveredProbes"])
+
     def coverage_report(self) -> dict[str, Any]:
         """Per-bucket Rhino coverage (needs OXPECKER_COVERAGE=1 in the environment of bin/harness)."""
         resp = self._request({"cmd": "coverage"})
