@@ -163,7 +163,11 @@ def cmd_loop(args) -> None:
     with own as client:
         assert client.info().get("coverage"), "coverage agent not attached"
         if args.jfr:
-            jfr_start(client.clients["interpreted"] if args.mode_jvms else client, out, "loop.jfr")
+            if args.mode_jvms:
+                for mode, c in client.clients.items():
+                    jfr_start(c, out, f"loop-{mode}.jfr")
+            else:
+                jfr_start(client, out, "loop.jfr")
         index = known_index(client)
         # the loop's own wait for a program's run (on the run thread when pipelined): with a JVM per
         # mode the requests above are on two more threads, and this is the wall they cost together
@@ -434,6 +438,21 @@ def cmd_jfr(args) -> None:
     print("\nhottest methods (top of stack):")
     for name, n in tops.most_common(15):
         print(f"{100 * n / total:5.1f}%  {name}")
+    # Execution samples are of Java threads only. The JVM's own threads (JIT compiler, collector)
+    # show in the per-thread CPU load events: each thread kind's share of the JVM's CPU.
+    import re
+    raw = subprocess.run([str(jfr), "print", "--json", "--events", "jdk.ThreadCPULoad", args.file],
+                         check=True, capture_output=True, text=True).stdout
+    load: Counter[str] = Counter()
+    for e in json.loads(raw)["recording"]["events"]:
+        v = e["values"]
+        thread = (v.get("eventThread") or {}).get("javaName") or (v.get("eventThread") or {}).get("osName") or "?"
+        load[re.sub(r"[#\d]+$", "", re.sub(r"\d+", "", thread)).strip() or thread] += (v.get("user") or 0) + (v.get("system") or 0)
+    whole = sum(load.values())
+    if whole:
+        print("\nthe JVM's CPU by kind of thread (jdk.ThreadCPULoad):")
+        for name, n in load.most_common(8):
+            print(f"{100 * n / whole:5.1f}%  {name}")
 
 
 def main() -> None:
