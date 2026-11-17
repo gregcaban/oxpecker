@@ -26,6 +26,24 @@ def known_signatures(client: Any, regressions: Path = DEFAULT_DIR.parent / "regr
     return known_index(client, regressions).signatures
 
 
+_SEEN: dict[Path, tuple[int, set[str]]] = {}     # log -> (its size when read, the signatures in it)
+
+
+def _seen(log: Path) -> set[str]:
+    """The signatures already in a log. Read once and again only when the file's size is not what
+    this process left it at (another process wrote to it, or it was removed): the loop records
+    two runs in three, and reading the whole log each time grew with the campaign."""
+    size = log.stat().st_size if log.exists() else 0
+    cached = _SEEN.get(log)
+    if cached is not None and cached[0] == size:
+        return cached[1]
+    seen: set[str] = set()
+    if size:
+        seen = {json.loads(ln)["signature"] for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    _SEEN[log] = (size, seen)
+    return seen
+
+
 def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAULT_DIR,
            reproducer: bool = False, choices: list[int] | None = None, replay_cmd: str = "oxpecker diff",
            related: list[Any] | None = None, judgement: Any | None = None) -> Path | None:
@@ -38,10 +56,9 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
     out_dir.mkdir(parents=True, exist_ok=True)
     log = out_dir / f"{verdict.kind}.jsonl"
     sig = verdict.signature()
-    seen: set[str] = set()
-    if log.exists():
-        seen = {json.loads(ln)["signature"] for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    seen = _seen(log)
     if sig not in seen:
+        seen.add(sig)
         with log.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"signature": sig, "rhino": targets.current(), **({"baseline": base} if base else {}), "verdict": verdict.to_json(), "source": prog.source,
                                 "template": prog.template, "choices": choices,
@@ -49,6 +66,7 @@ def record(prog: Any, run: RunResult, verdict: Verdict, *, out_dir: Path = DEFAU
                                             for r in related or ()],
                                 **({"judge": judgement.to_json()} if judgement is not None else {}),
                                 "results": run.to_json()["results"]}) + "\n")
+        _SEEN[log] = (log.stat().st_size, seen)
     if not reproducer:
         return None
     path = out_dir / f"{verdict.kind}-{short_sig(verdict)}.js"

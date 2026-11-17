@@ -28,6 +28,7 @@ import random
 import sys
 import time
 from collections import Counter, OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
@@ -201,7 +202,10 @@ class LineageCache:
     """The lineages behind corpus entries, by entry id, so extending an entry draws only its new
     steps instead of replaying the whole lineage (follow-up item 1). Entries the loop adds are
     put here as they are found; entries loaded from disk are replayed on first use. Least
-    recently used entries are dropped past `capacity`."""
+    recently used entries are dropped past `capacity`; the loop keeps the capacity above the
+    corpus's size (`fit`), since a dropped lineage costs a replay of its whole round (25 ms and
+    more) the next time its entry is picked, and one kept costs a few kilobytes: a child shares
+    its parent's steps and programs."""
 
     def __init__(self, capacity: int = 512):
         self.capacity = capacity
@@ -209,6 +213,10 @@ class LineageCache:
         self.hits = 0
         self.misses = 0
         self.incremental = 0           # misses (or their ancestors) rebuilt from a parent's lineage
+
+    def fit(self, entries: int) -> None:
+        """Room for a corpus of `entries` and the same again as it grows."""
+        self.capacity = max(self.capacity, 2 * entries)
 
     def put(self, entry_id: int, lineage: Lineage) -> None:
         self._lineages[entry_id] = lineage
@@ -419,14 +427,15 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
          compact_budget: int = 0, source_shrink_budget: int = 300, language_version: int = 200,
          runner: Runner | None = None, client=None, quiet: bool = False,
          max_depth: int = MAX_DEPTH, verdict: Callable[[Any], Verdict] = compare_run,
-         judge_findings: bool = False) -> dict[str, Any]:
+         judge_findings: bool = False, pipeline: bool = True) -> dict[str, Any]:
     """Run the loop. `runner` (or a `HarnessClient` in `client`) runs programs; without either a
     coverage-enabled client is started. `steps` is the mutation steps per round (a fresh lineage
     or one extension), `max_depth` the safety cap on a lineage's depth over all rounds (G49).
     `related_index` (oxpecker.related.KnownIndex) labels each new finding with the regressions it
     probably connects to. `verdict` judges each run (crossver.cross_verdict with a CrossClient).
     With `judge_findings`, each new finding, once shrunk, runs on engine262 too (oxpecker.judge),
-    which says which side agrees with the spec.
+    which says which side agrees with the spec. `pipeline` draws the next program while the
+    current one runs (see the loop).
     Returns the summary also written to `last-run.json`."""
     rng = Random(seed)
     corpus = Corpus(corpus_dir)
@@ -458,11 +467,156 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
         curve.append(coverage.append_row(corpus.dir, t0, 0, len(corpus.entries), client.coverage_count(), 0, start=True))
 
     lineages = LineageCache()
+    lineages.fit(len(corpus.entries))
     child_timeouts: Counter[int] = Counter()   # entry id -> its children that timed out this run
     weights: list[float] | None = None         # parent_weights, recomputed when either changes
     attempted: Counter[str] = Counter()      # mutation steps tried this run, per mutator (G51)
     rejected: Counter[str] = Counter()       # of those, the ones whose child did not verify
     productive: Counter[str] = Counter()     # steps of the entries added to the corpus this run
+    def draw_next() -> tuple[Entry | None, Lineage | None, Lineage, Choices] | None:
+        """The next program to run: a corpus entry extended, or a fresh lineage. None when the
+        draw was rejected."""
+        nonlocal weights
+        parent: Entry | None = None
+        parent_lineage: Lineage | None = None
+        drawn = None
+        if corpus.entries and rng.random() > p_new:
+            if weights is None:
+                weights = parent_weights(corpus.entries, child_timeouts)
+            parent = rng.choices(corpus.entries, weights)[0]
+            parent_choices = decode(parent.choices)
+            parent_lineage = lineages.get(parent, options, steps, corpus.by_id) if parent_choices else None
+            if parent_lineage is not None and parent_lineage.depth >= max_depth:
+                stats["at-max-depth"] += 1
+                drawn = None
+            else:
+                drawn = extend(parent_choices, options, steps, rng, parent_lineage, max_depth=max_depth) if parent_lineage else None
+                stats["extended" if drawn else "extend-failed"] += 1
+        if drawn is None:
+            parent = None
+            drawn = draw_lineage(options, steps, rng=rng)
+            stats["fresh"] += 1
+        if drawn is None:
+            stats["rejected"] += 1
+            return None
+        lineage, choices = drawn
+        base_lineage = parent_lineage if parent is not None else None
+        for name, n in lineage.attempted_by.items():
+            attempted[name] += n - (base_lineage.attempted_by.get(name, 0) if base_lineage else 0)
+        for name, n in lineage.rejected_by.items():
+            rejected[name] += n - (base_lineage.rejected_by.get(name, 0) if base_lineage else 0)
+        return parent, base_lineage, lineage, choices
+
+    def process(job: tuple[Entry | None, Lineage | None, Lineage, Choices], obs: Observation) -> None:
+        """What a run showed: the verdict counted, a finding shrunk and recorded, new probes into
+        the corpus."""
+        nonlocal weights, last_report, last_curve
+        parent, base_lineage, lineage, choices = job
+        v = obs.verdict
+        stats[v.kind] += 1
+        if obs.timed_out and parent is not None:
+            child_timeouts[parent.id] += 1
+            weights = None
+        if v.kind in (SOFT, JAVA_TYPES):
+            findings.record(lineage, obs.run, v, out_dir=findings_dir)
+        elif v.kind == HARD:
+            sig = v.signature()
+            sig_counts[sig] += 1
+            if sig in known:
+                findings.record(lineage, obs.run, v, out_dir=findings_dir)
+            else:
+                known.add(sig)
+                stats["new-findings"] += 1
+                # Shrink towards this finding's coarse signature, not "any unknown hard
+                # verdict": the signature was just added to `known`, so the loop's own
+                # predicate would reject every candidate (including the replay of the
+                # finding itself) and Hypothesis would never start shrinking.
+                coarse = v.coarse_signature()
+
+                def same_bug(l: Lineage, o: Observation, coarse: str = coarse) -> type[Exception] | None:
+                    return finding_class(coarse) if o.verdict.kind == HARD and o.verdict.coarse_signature() == coarse else None
+
+                shrinker = Shrinker(runner, options, steps, same_bug, budget=shrink_budget)
+                small = shrinker.shrink(choices, lineage.cap) or (lineage, choices, obs)
+                record_as, rec_run, rec_verdict = small[0], small[2].run, small[2].verdict
+                if client is not None and source_shrink_budget:
+                    # then statement-level deletion on the lifted source, which gets much further
+                    # than choice shrinking within a budget (proposal §3.7)
+                    shrunk = shrink_lifted(client, small[0].source, rec_verdict.coarse_signature(),
+                                           language_version, source_shrink_budget, verdict)
+                    if shrunk is not None:
+                        record_as, rec_run, rec_verdict = shrunk
+                related = []
+                if related_index is not None:
+                    from .related import Fingerprint
+                    related = related_index.related(Fingerprint.of("finding", record_as.source, rec_run, rec_verdict))
+                judgement = None
+                if judge_findings:
+                    from . import judge
+                    judgement = judge.judge(record_as.source, rec_run)
+                    stats[f"judged-{judgement.label}"] += 1
+                path = findings.record(record_as, rec_run, rec_verdict, out_dir=findings_dir,
+                                       reproducer=True, replay_cmd="oxpecker diff", related=related,
+                                       judgement=judgement)
+                if parent is not None:
+                    parent.found.append(sig)
+                if not quiet:
+                    print(f"[finding] {rec_verdict.pretty()[:160]}\n          -> {path} "
+                          f"({len(record_as.source.splitlines())} lines; lineage shrink {len(lineage.code)} -> "
+                          f"{len(small[0].code)} instructions, {len(lineage.steps)} -> {len(small[0].steps)} steps "
+                          f"in {shrinker.calls} runs; source shrink {len(small[0].source.splitlines())} -> "
+                          f"{len(record_as.source.splitlines())} lines)", file=sys.stderr)
+                    if judgement is not None:
+                        print(f"          engine262: {judgement.label}: {judgement.summary}", file=sys.stderr)
+                    for r in related:
+                        print(f"          related: {r}", file=sys.stderr)
+        if obs.new_probes > 0 and obs.timed_out:
+            # a hang is not a parent (AFL keeps them out of its queue): its children inherit the
+            # runaway, and one past the watchdog costs the wall limit plus a JVM restart
+            stats["timed-out-not-added"] += 1
+        elif obs.new_probes > 0:
+            entry = (choices, lineage, obs.new_probe_ids)
+            if compact_budget and obs.new_probe_ids:
+                compacted = compact(runner, options, lineage.cap, choices, obs.new_probe_ids, compact_budget)
+                if compacted is not None:
+                    entry = compacted
+                    stats["compacted"] += 1
+            e_choices, e_lineage, probes = entry
+            new_entry = Entry(corpus.next_id(), encode(e_choices), e_lineage.template, [s.name for s in e_lineage.steps],
+                              obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code),
+                              cap=e_lineage.cap, ms=obs.ms)
+            corpus.add(new_entry)
+            weights = None
+            if len(corpus.entries) >= lineages.capacity:
+                lineages.fit(len(corpus.entries))
+            lineages.put(new_entry.id, e_lineage)
+            for step in e_lineage.steps[len(base_lineage.steps) if base_lineage else 0:]:
+                productive[step.name] += 1
+            stats["corpus-added"] += 1
+            stats["new-probes"] += obs.new_probes
+            if client is not None:
+                # the checkpoint a restarted JVM resumes from (HarnessClient.coverage_checkpoint):
+                # only runs with new probes move the frontier, and each of those is added here
+                client.coverage_save(str(corpus.exec))
+        if client is not None and time.time() - last_curve >= coverage.CURVE_EVERY_S:
+            last_curve = time.time()
+            curve.append(coverage.append_row(corpus.dir, t0, i, len(corpus.entries), client.coverage_count(),
+                                             stats["new-findings"]))
+        if not quiet and time.time() - last_report > 10:
+            last_report = time.time()
+            rate = i / (last_report - t0)
+            print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
+                  f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
+                                                                 if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
+                  file=sys.stderr)
+
+    # With `pipeline`, a program runs on a thread (which waits on the JVM's pipe) while the next
+    # one is drawn here: an iteration costs the longer of drawing and running instead of their
+    # sum. One request is in flight at most, and the run is processed (shrinking included, which
+    # uses the client itself) before the next is submitted; the price is that the next program's
+    # parent is picked from the corpus as it was before the run in flight.
+    pool = ThreadPoolExecutor(1, thread_name_prefix="oxpecker-run") if pipeline else None
+    pending: tuple[Any, Any] | None = None
     i = 0
     try:
         while True:
@@ -471,131 +625,22 @@ def fuzz(*, corpus_dir: Path, options: GenOptions = GenOptions(), iterations: in
             if seconds is not None and time.time() - t0 >= seconds:
                 break
             i += 1
-            parent: Entry | None = None
-            parent_lineage: Lineage | None = None
-            drawn = None
-            if corpus.entries and rng.random() > p_new:
-                if weights is None:
-                    weights = parent_weights(corpus.entries, child_timeouts)
-                parent = rng.choices(corpus.entries, weights)[0]
-                parent_choices = decode(parent.choices)
-                parent_lineage = lineages.get(parent, options, steps, corpus.by_id) if parent_choices else None
-                if parent_lineage is not None and parent_lineage.depth >= max_depth:
-                    stats["at-max-depth"] += 1
-                    drawn = None
-                else:
-                    drawn = extend(parent_choices, options, steps, rng, parent_lineage, max_depth=max_depth) if parent_lineage else None
-                    stats["extended" if drawn else "extend-failed"] += 1
-            if drawn is None:
-                parent = None
-                drawn = draw_lineage(options, steps, rng=rng)
-                stats["fresh"] += 1
-            if drawn is None:
-                stats["rejected"] += 1
+            job = draw_next()
+            if pending is not None:
+                process(pending[0], pending[1].result())
+                pending = None
+            if job is None:
                 continue
-            lineage, choices = drawn
-            base_lineage = parent_lineage if parent is not None else None
-            for name, n in lineage.attempted_by.items():
-                attempted[name] += n - (base_lineage.attempted_by.get(name, 0) if base_lineage else 0)
-            for name, n in lineage.rejected_by.items():
-                rejected[name] += n - (base_lineage.rejected_by.get(name, 0) if base_lineage else 0)
-            obs = runner(lineage)
-            v = obs.verdict
-            stats[v.kind] += 1
-            if obs.timed_out and parent is not None:
-                child_timeouts[parent.id] += 1
-                weights = None
-            if v.kind in (SOFT, JAVA_TYPES):
-                findings.record(lineage, obs.run, v, out_dir=findings_dir)
-            elif v.kind == HARD:
-                sig = v.signature()
-                sig_counts[sig] += 1
-                if sig in known:
-                    findings.record(lineage, obs.run, v, out_dir=findings_dir)
-                else:
-                    known.add(sig)
-                    stats["new-findings"] += 1
-                    # Shrink towards this finding's coarse signature, not "any unknown hard
-                    # verdict": the signature was just added to `known`, so the loop's own
-                    # predicate would reject every candidate (including the replay of the
-                    # finding itself) and Hypothesis would never start shrinking.
-                    coarse = v.coarse_signature()
-
-                    def same_bug(l: Lineage, o: Observation, coarse: str = coarse) -> type[Exception] | None:
-                        return finding_class(coarse) if o.verdict.kind == HARD and o.verdict.coarse_signature() == coarse else None
-
-                    shrinker = Shrinker(runner, options, steps, same_bug, budget=shrink_budget)
-                    small = shrinker.shrink(choices, lineage.cap) or (lineage, choices, obs)
-                    record_as, rec_run, rec_verdict = small[0], small[2].run, small[2].verdict
-                    if client is not None and source_shrink_budget:
-                        # then statement-level deletion on the lifted source, which gets much further
-                        # than choice shrinking within a budget (proposal §3.7)
-                        shrunk = shrink_lifted(client, small[0].source, rec_verdict.coarse_signature(),
-                                               language_version, source_shrink_budget, verdict)
-                        if shrunk is not None:
-                            record_as, rec_run, rec_verdict = shrunk
-                    related = []
-                    if related_index is not None:
-                        from .related import Fingerprint
-                        related = related_index.related(Fingerprint.of("finding", record_as.source, rec_run, rec_verdict))
-                    judgement = None
-                    if judge_findings:
-                        from . import judge
-                        judgement = judge.judge(record_as.source, rec_run)
-                        stats[f"judged-{judgement.label}"] += 1
-                    path = findings.record(record_as, rec_run, rec_verdict, out_dir=findings_dir,
-                                           reproducer=True, replay_cmd="oxpecker diff", related=related,
-                                           judgement=judgement)
-                    if parent is not None:
-                        parent.found.append(sig)
-                    if not quiet:
-                        print(f"[finding] {rec_verdict.pretty()[:160]}\n          -> {path} "
-                              f"({len(record_as.source.splitlines())} lines; lineage shrink {len(lineage.code)} -> "
-                              f"{len(small[0].code)} instructions, {len(lineage.steps)} -> {len(small[0].steps)} steps "
-                              f"in {shrinker.calls} runs; source shrink {len(small[0].source.splitlines())} -> "
-                              f"{len(record_as.source.splitlines())} lines)", file=sys.stderr)
-                        if judgement is not None:
-                            print(f"          engine262: {judgement.label}: {judgement.summary}", file=sys.stderr)
-                        for r in related:
-                            print(f"          related: {r}", file=sys.stderr)
-            if obs.new_probes > 0 and obs.timed_out:
-                # a hang is not a parent (AFL keeps them out of its queue): its children inherit the
-                # runaway, and one past the watchdog costs the wall limit plus a JVM restart
-                stats["timed-out-not-added"] += 1
-            elif obs.new_probes > 0:
-                entry = (choices, lineage, obs.new_probe_ids)
-                if compact_budget and obs.new_probe_ids:
-                    compacted = compact(runner, options, lineage.cap, choices, obs.new_probe_ids, compact_budget)
-                    if compacted is not None:
-                        entry = compacted
-                        stats["compacted"] += 1
-                e_choices, e_lineage, probes = entry
-                new_entry = Entry(corpus.next_id(), encode(e_choices), e_lineage.template, [s.name for s in e_lineage.steps],
-                                  obs.new_probes, probes, parent.id if parent else None, len(e_lineage.code),
-                                  cap=e_lineage.cap, ms=obs.ms)
-                corpus.add(new_entry)
-                weights = None
-                lineages.put(new_entry.id, e_lineage)
-                for step in e_lineage.steps[len(base_lineage.steps) if base_lineage else 0:]:
-                    productive[step.name] += 1
-                stats["corpus-added"] += 1
-                stats["new-probes"] += obs.new_probes
-                if client is not None:
-                    # the checkpoint a restarted JVM resumes from (HarnessClient.coverage_checkpoint):
-                    # only runs with new probes move the frontier, and each of those is added here
-                    client.coverage_save(str(corpus.exec))
-            if client is not None and time.time() - last_curve >= coverage.CURVE_EVERY_S:
-                last_curve = time.time()
-                curve.append(coverage.append_row(corpus.dir, t0, i, len(corpus.entries), client.coverage_count(),
-                                                 stats["new-findings"]))
-            if not quiet and time.time() - last_report > 10:
-                last_report = time.time()
-                rate = i / (last_report - t0)
-                print(f"{i:7} runs {rate:5.1f}/s  corpus {len(corpus.entries)}  new probes {stats['new-probes']}  "
-                      f"findings {stats['new-findings']}  " + ", ".join(f"{k}={n}" for k, n in sorted(stats.items())
-                                                                     if k in ("equal", "hard", "java-types", "soft", "fixed", "rejected")),
-                      file=sys.stderr)
+            if pool is not None:
+                pending = (job, pool.submit(runner, job[2]))
+            else:
+                process(job, runner(job[2]))
+        if pending is not None:
+            process(pending[0], pending[1].result())
+            pending = None
     finally:
+        if pool is not None:
+            pool.shutdown(wait=True)             # no request in flight when the coverage is saved
         report: dict[str, Any] = {}
         if client is not None:
             covered = client.coverage_save(str(corpus.exec))

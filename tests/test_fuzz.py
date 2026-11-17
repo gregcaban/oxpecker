@@ -166,7 +166,7 @@ def test_a_missed_entry_is_rebuilt_from_its_parent_exactly_as_a_full_replay(tmp_
     """A cache miss replays only the entry's own round on top of its parent's lineage; on the
     three-hour corpus a full replay cost about 0.23 s per mutation step (lineages to 19 steps)."""
     fuzz(corpus_dir=tmp_path / "corpus", options=OPTIONS, iterations=150, steps=STEPS, seed=4, runner=FakeRunner(),
-         findings_dir=tmp_path / "findings", shrink_budget=5, quiet=True)
+         findings_dir=tmp_path / "findings", shrink_budget=5, quiet=True, pipeline=False)   # this seed's corpus, drawn in step
     corpus = Corpus(tmp_path / "corpus")
     children = [e for e in corpus.entries if e.parent is not None]
     assert len(children) >= 5 and max(len(e.steps) for e in children) > STEPS      # more than one round deep
@@ -249,6 +249,44 @@ def test_loop_grows_the_corpus_and_finds_and_shrinks_the_planted_bug(tmp_path: P
     assert "oxpecker-expect: hard" in text and "=" in text
     log = [json.loads(ln) for ln in (findings_dir / "hard.jsonl").read_text().splitlines() if ln.strip()]
     assert log and log[0]["signature"].startswith("hard:")
+
+
+def test_the_pipelined_loop_runs_one_program_at_a_time_and_processes_every_run(tmp_path: Path):
+    """With `pipeline` the next program is drawn while the current one runs on a thread: never two
+    runs at once (the JVM answers one request at a time, and shrinking uses it too), every run
+    processed, the last one included, and the same loop from the same seed every time."""
+    import threading
+
+    class Watching(FakeRunner):
+        def __init__(self):
+            super().__init__()
+            self.running = threading.Lock()
+            self.threads: set[str] = set()
+
+        def __call__(self, lineage, require=None):
+            assert self.running.acquire(blocking=False), "two runs at once"
+            try:
+                self.threads.add(threading.current_thread().name)
+                return super().__call__(lineage, require)
+            finally:
+                self.running.release()
+
+    def run(name: str, **kw):
+        runner = Watching()
+        summary = fuzz(corpus_dir=tmp_path / name, options=OPTIONS, iterations=60, steps=STEPS, seed=7, runner=runner,
+                       findings_dir=tmp_path / (name + "-findings"), shrink_budget=5, quiet=True, **kw)
+        return runner, summary
+
+    runner, summary = run("a")
+    stats = summary["stats"]
+    assert summary["runs"] == 60
+    assert any(t.startswith("oxpecker-run") for t in runner.threads)
+    assert stats.get("equal", 0) + stats.get("hard", 0) == 60 - stats.get("rejected", 0)          # every program drawn was run and judged
+    assert summary["corpus"] == stats["corpus-added"] > 0
+    again, summary2 = run("b")
+    assert summary2["stats"] == stats and Corpus(tmp_path / "b").entries[-1].choices == Corpus(tmp_path / "a").entries[-1].choices
+    serial, _ = run("c", pipeline=False)
+    assert not any(t.startswith("oxpecker-run") for t in serial.threads)
 
 
 def test_shrinker_returns_a_smaller_lineage_that_still_fails():
