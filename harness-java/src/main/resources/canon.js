@@ -25,6 +25,8 @@
   var isArray = Array.isArray;
   var objToString = Object.prototype.toString;
   var fnToString = Function.prototype.toString;
+  var strIndexOf = String.prototype.indexOf;
+  var strSlice = String.prototype.slice;
   var jsonStringify = JSON.stringify;
   var call = Function.prototype.call;
   var apply = Function.prototype.apply;
@@ -71,6 +73,34 @@
   try { genProto = gpo(gpo((function* () {})())); if (genProto) protoNames.push([genProto, 'Generator.prototype']); } catch (e) {}
   // rhinoException/javaException are the Java throwables Rhino hangs off error objects.
   var excludedErrorKeys = { stack: 1, fileName: 1, lineNumber: 1, columnNumber: 1, rhinoException: 1, javaException: 1 };
+
+  // The source text of a Java method, `function sum() {/*\nint sum(int[])\ndouble sum(double[])\n*/}\n`,
+  // lists its overloads in the order reflection returned them, which Java does not fix: with a JVM
+  // per mode the two lists differed and made a finding of it. The lines of every such list in a
+  // string are sorted (a function's source text, and a string a script made from one).
+  function sortOverloads(src) {
+    var pos = 0, out = '';
+    for (;;) {
+      var open = call.call(strIndexOf, src, '() {/*\n', pos);
+      if (open < 0) break;
+      var start = open + 7, end = call.call(strIndexOf, src, '\n*/}', start);
+      if (end < 0) break;
+      var lines = [], count = 0, from = start;
+      for (;;) {
+        var nl = call.call(strIndexOf, src, '\n', from);
+        if (nl < 0 || nl > end) nl = end;
+        var line = call.call(strSlice, src, from, nl), j = count++;
+        while (j > 0 && lines[j - 1] > line) { lines[j] = lines[j - 1]; j--; }
+        lines[j] = line;
+        if (nl >= end) break;
+        from = nl + 1;
+      }
+      out += call.call(strSlice, src, pos, start);
+      for (var k = 0; k < count; k++) out += (k ? '\n' : '') + lines[k];
+      pos = end;
+    }
+    return pos === 0 ? src : out + call.call(strSlice, src, pos);
+  }
 
   function tagOf(v) { try { return call.call(objToString, v); } catch (e) { return '[object ?]'; } }
 
@@ -141,6 +171,7 @@
 
     function string(v) {
       jtypes.push(jtype(v));
+      v = sortOverloads(v);
       if (v.length > MAX_STRING) return jsonStringify(v.slice(0, MAX_STRING)) + '…[len=' + v.length + ']';
       return jsonStringify(v);
     }
@@ -218,7 +249,7 @@
         parts.push('name=' + (typeof name === 'string' ? jsonStringify(name) : '?'));
         parts.push('length=' + (typeof len === 'number' ? len : '?'));
         var src;
-        try { src = call.call(fnToString, v); } catch (e) { src = '!' + e; }
+        try { src = sortOverloads(call.call(fnToString, v)); } catch (e) { src = '!' + e; }
         parts.push('src=' + jsonStringify(src.length > MAX_STRING ? src.slice(0, MAX_STRING) + '…' : src));
       } else if (tag === '[object Number]' || tag === '[object String]' || tag === '[object Boolean]' || tag === '[object BigInt]') {
         var vo = tag === '[object Number]' ? numberValueOf : tag === '[object String]' ? stringValueOf : tag === '[object Boolean]' ? booleanValueOf : bigintValueOf;

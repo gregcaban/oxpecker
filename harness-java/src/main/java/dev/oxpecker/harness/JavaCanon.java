@@ -192,8 +192,9 @@ final class JavaCanon {
             jtypes.add(Host.jtype(v));
             CharSequence cs = (CharSequence) v;
             int len = cs.length();
-            if (len > MAX_STRING) return json(cx, cs.subSequence(0, MAX_STRING).toString()) + "…[len=" + len + "]";
-            return json(cx, v);
+            String sorted = sortOverloads(cs.toString());
+            if (len > MAX_STRING) return json(cx, sorted.substring(0, MAX_STRING)) + "…[len=" + len + "]";
+            return json(cx, sorted);
         }
 
         String prim(Object v) {
@@ -304,7 +305,7 @@ final class JavaCanon {
                 parts.add("length=" + (isTypeof(len, "number") ? ScriptRuntime.toString(len) : "?"));
                 String src;
                 try {
-                    src = ScriptRuntime.toString(call(cx, fnToString, v));
+                    src = sortOverloads(ScriptRuntime.toString(call(cx, fnToString, v)));
                 } catch (RuntimeException e) {
                     if (!catchable(cx, e)) throw e;
                     src = "!" + errText(cx, e);
@@ -598,6 +599,25 @@ final class JavaCanon {
      *  getters cast {@code this} to Scriptable (a ClassCastException, not a script error). */
     private Object symbolThis(Context cx, Object s) {
         return Scopes.symbolThis(cx, scope, s);
+    }
+
+    /** canon.js's sortOverloads: the lines of every overload list of a Java method's source text in
+     *  the string, sorted (reflection's order differs between JVMs). */
+    static String sortOverloads(String src) {
+        int pos = 0;
+        StringBuilder out = null;
+        for (;;) {
+            int open = src.indexOf("() {/*\n", pos);
+            if (open < 0) break;
+            int start = open + 7, end = src.indexOf("\n*/}", start);
+            if (end < 0) break;
+            String[] lines = src.substring(start, end).split("\n", -1);
+            java.util.Arrays.sort(lines);
+            if (out == null) out = new StringBuilder(src.length());
+            out.append(src, pos, start).append(String.join("\n", lines));
+            pos = end;
+        }
+        return out == null ? src : out.append(src, pos, src.length()).toString();
     }
 
     private Object call(Context cx, Callable f, Object thisObj, Object... args) {

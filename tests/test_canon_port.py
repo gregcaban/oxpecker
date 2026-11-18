@@ -20,6 +20,7 @@ VOLATILE = {"ms", "newProbes", "newProbeIds", "requiredReached", "hitProbes"}
 
 PROGRAMS = {
     "empty": "1;",
+    "java-overloads": "__probe('p', J.sum, J.over, function f() {/*\nb\na\n*/}, J.sum.toString(), 'a' + J.over + J.sum); print(J.over);",
     "primitives": "__probe('p', undefined, null, true, 1, -0, 0, NaN, 1.5, 1e21, 'a\"b\\n', 'é', '\\ud800', 10n, Symbol('d'), Symbol(), Symbol.for('k'), Symbol.iterator);",
     "long-string": "__probe('p', 'x'.repeat(1000), 'é'.repeat(500)); 'y'.repeat(401)",
     "arrays": "var a = [1,,3]; a.x = 1; a[Symbol('s')] = 2; var big = new Array(300).fill(1); Object.defineProperty(a, 1, {get(){return 1}, enumerable:true});"
@@ -145,3 +146,16 @@ def test_java_canon_ignores_patched_array_and_string_methods(clients):
     for mode in clean.results:
         assert clean.results[mode].trace == patched.results[mode].trace
         assert clean.results[mode].trace and "SL" not in clean.results[mode].trace[0]
+
+
+@pytest.mark.parametrize("canon", ["js", "java"])
+def test_a_java_methods_overloads_are_listed_sorted(clients, canon):
+    """Reflection returns a class's methods in no fixed order, so a Java method's source text listed
+    its overloads differently in the two JVMs of harness.client.ModeClients: a false finding."""
+    run = clients[canon].run("__probe('p', J.sum, J.over);", source_name="overloads.js")
+    for mode, outcome in run.results.items():
+        text = outcome.trace[0]
+        assert "double sum(double[])\\nint sum(int[])" in text, (mode, text)
+        over = text[text.index("function over()"):]
+        lines = over[over.index("/*\\n") + 4:over.index("\\n*/")].split("\\n")
+        assert len(lines) > 2 and lines == sorted(lines), (mode, lines)

@@ -71,7 +71,7 @@ final class Host {
                     if (i > 0) sb.append(' ');
                     sb.append(ScriptRuntime.toString(args[i]));
                 }
-                output.add(sb.toString());
+                output.add(JavaCanon.sortOverloads(sb.toString()));   // a printed Java method: see canon.js
                 return Undefined.instance;
             });
             define(scope, "__probe", 1, (c, s, thisObj, args) -> {
