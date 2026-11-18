@@ -47,7 +47,7 @@ difference). §5.7 has the example.
 
 ## 2. The map
 
-Forty-six entries (44 reproducers, two of them symptoms of one cause, plus the two seeds,
+Fifty entries (48 reproducers, two of them symptoms of one cause, plus the two seeds,
 the continuation difference and the soft record), grouped by the part of Rhino that is wrong.
 "Right" names the mode that follows the spec; "both wrong" means neither does.
 
@@ -59,10 +59,10 @@ the continuation difference and the soft record), grouped by the part of Rhino t
 | 5.2 Interpreter frames and argument arrays | `apply` with an array-like into a rest parameter, re-entrant generator `next()`, object-rest from a Proxy with a Symbol key | compiled (object-rest: both wrong) |
 | 5.3 Compiled code the JVM rejects | relational argument stack underflow, `z((yield 3))`, `obj[p] &&= v`, `yield` in a default parameter, `yield` from a `catch` inside `for-of` | interpreted |
 | 5.4 Compiled generators and `finally` | nested `finally`/`throw` escapes the `catch`, abrupt `finally` completion (seed) | interpreted |
-| 5.5 Java exceptions escaping both modes | 14 reproducers, from `Array.find()` to `new Int8Array({length: 2**53})` and a Java array's `__proto__` | neither |
+| 5.5 Java exceptions escaping both modes | 17 reproducers, from `Array.find()` to `new Int8Array({length: 2**53})`, `new Date(-2**31, -2**31)` and a Java wrapper's `__proto__` | neither |
 | 5.6 Expected differences | continuations | by design |
 | 5.7 Soft | Symbol comparison message | neither |
-| 5.8 Compiled `super` in a block with `let`/`const` | `ClassCastException` at the super reference | interpreted |
+| 5.8 Compiled `super` in a block with `let`/`const`, a `with` block or a `for (let ...)` body | `ClassCastException` at the super reference (two reproducers) | interpreted |
 | 5.9 Compiled `with` over a Java object | `ClassCastException` at the first name read in the block | interpreted |
 | 5.10 Compiled rest parameter of a direct-call target | `rest` is the first extra argument, not an array | interpreted |
 | 5.11 Labelled `for` with a loop in a function in its head | `continue L`: compiled "unlocated label", interpreted skips the update | both wrong |
@@ -144,7 +144,7 @@ function f(a) { var n = a * a; return n; } f(10n);   // interpreted 100n, compil
 function f() { var x = 2n ** 1024n; return Number(x); } f();   // interpreted Infinity, compiled TypeError
 ```
 
-The optimizer treats unary `-`, `~`, `*`, `**` and `++` as always numeric and gives the local a
+The optimizer treats unary `-`, `~`, `*`, `%`, `**` and `++` as always numeric and gives the local a
 `double` slot. When the operand is a BigInt the store into that slot throws
 `TypeError: Cannot convert BigInt to a number`. `var b = 1n` (no operator), `return -1n` (no
 local), top-level `var b = -1n` (no optimizer) and `n = a + a` (`+` may concatenate, so it is
@@ -413,7 +413,7 @@ escape. A plain (non-generator) function behaves. Rhino's own expectation file t
 
 ### 5.5 Java exceptions escaping both modes
 
-Fourteen reproducers where the bug is in a builtin, the parser or the front end shared by both
+Seventeen reproducers where the bug is in a builtin, the parser or the front end shared by both
 modes, and a raw Java exception comes out of the engine past any JS `try/catch`. They are not
 mode divergences; the harness classes a crash as `hard` so they surface anyway. Grouped by what
 should have happened instead.
@@ -440,6 +440,22 @@ The first entry of `tests/findings/hard.jsonl`, `Array.indexOf()` crashing in
 | `t262-typedarray-excessive-length-crash.js` | `new Int8Array({length: 2**53})` | `IllegalArgumentException` |
 | `t262-bigint-asintn-large-bits-crash.js` | `BigInt.asIntN(4294967295, 1n)` | `ArithmeticException: BigInteger would overflow` |
 | `string-doubling-overflow-negative-array-size.js` | `s += s` until length is exactly 2^31 | `NegativeArraySizeException` |
+| `typedarray-from-array-length-2-31-illegalstate-both-modes.js` | `a[2147483647] = 0; new Uint8ClampedArray(a)` | `IllegalStateException: list.length (2147483648) exceeds Integer.MAX_VALUE` |
+
+The last row is the array form of the first: 1.9.2 throws the RangeError for the array-like
+`{length: 2**53}` but not for a real array of length 2^31; master `4c3d79b` runs past the time
+limit on it instead. `new Int8Array(2147483646)` is a third shape of the missing size check
+(`OutOfMemoryError: Requested array size exceeds VM limit`, after which the harness restarts
+its JVM); it has no regression file because the error depends on the JVM's limits.
+
+**Should be an Invalid Date** (range check missing):
+
+| file | call | exception |
+|---|---|---|
+| `date-two-int-min-args-failed-assertion-both-modes.js` | `new Date(-2147483648, -2147483648)` | `IllegalStateException: FAILED ASSERTION` |
+
+Both the year and the month must be -2^31; either one with an ordinary value for the other
+gives an Invalid Date in both modes. Master `4c3d79b` crashes the same way.
 
 **Should be a SyntaxError or should compile** (parser or IR bug):
 
@@ -459,6 +475,10 @@ non-Ecma syntax upstream has discussed removing (#1056).
 | file | program | exception |
 |---|---|---|
 | `java-array-set-prototype-classcast.js` | `J.intArray(2).__proto__ = {}` | `ClassCastException: NativeJavaArray cannot be cast to ScriptableObject` (`NativeObject.js_protoSetter`) |
+| `java-string-wrapper-proto-getter-classcast.js` | `J.echo("").__proto__` | `ClassCastException: NativeJavaObject cannot be cast to ScriptableObject` |
+
+The second row needs no write first: reading `__proto__` from the wrapper of a Java string a
+Java method returned is enough on 1.9.2 (fixed on master `4c3d79b`).
 
 `Object.setPrototypeOf(a, {})` on the same array succeeds and the next read of `a.__proto__`
 crashes in `js_protoGetter` instead; the wrapper of a plain Java object (`J.__proto__ = {}`)
@@ -507,6 +527,20 @@ Strict mode and nesting the method in a function make no difference. The cast na
 mechanism: the compiled super lookup walks to the enclosing activation and expects a
 `NativeCall`, but a block with lexical declarations puts a `LocalScope` in front of it. Found
 by `oxpecker fuzz` on 2026-10-28; the interpreter is right.
+
+**Second form: a `with` block or a `for (let ...)` body.**
+`compiled-super-in-with-or-for-let-classcast.js` (hour-long campaign of 2026-11-17):
+
+```js
+var w = { m() { with ({}) { super.x = 1; } return this.x; } };
+var l = { m() { for (let i = 0; i < 1; i++) { super.x = 1; } return this.x; } };
+w.m(); l.m();   // interpreted 1, compiled ClassCastException: NativeWith cannot be cast to NativeCall
+```
+
+No lexical declaration in a block is needed: any construct that puts a scope object in front
+of the method's activation does it, and on 1.9.2 a super *write* is enough here, where the
+block form needs a read. Master `4c3d79b` crashes the same way (`WithScope cannot be cast to
+NativeCall`). The fuzzer's form was `super.get %= n` in a destructuring for-let loop.
 
 ### 5.9 Compiled `with` over a Java object
 
@@ -592,6 +626,7 @@ L85`); the loop's shrinker left 24 lines, reduced by hand. Not checked on master
 | `oxpecker fuzz` on 1.9.2, 2026-10-28 | 5.3 last row; hour-long campaign: 5.9, the ToPrimitive form of 5.1's receiver bug |
 | `oxpecker fuzz` on 1.9.2, three-hour campaign, 2026-10-29 | 5.10, 5.5 Java array `__proto__` |
 | `oxpecker fuzz` on 1.9.2, seeded three-hour campaign, 2026-11-01 | 5.11 |
+| `oxpecker fuzz` on 1.9.2, hour-long campaign with generator processes, 2026-11-17 | 5.5 `Date`, typed array from a 2^31 array, Java string `__proto__`; 5.8 second form |
 
 Everything still under `tests/findings/` maps to a family above:
 
@@ -685,6 +720,75 @@ on the first program per coarse signature in `findings/hard.jsonl`:
   wrong receiver twice (`super.__proto__ +=` over an `Int8Array`), 3.2, 3.3, 3.4 twice
   (`var m = ~p` with a BigInt argument; a captured relop), and 5.6's continuations (`new
   Continuation()` compiled). The new one is 5.11, which the shrinker left at 24 lines.
+
+### The hour-long campaign of 2026-11-17 (generator processes, a JVM per mode)
+
+The first campaign on the faster loop (`--workers 5`, one JVM per mode, findings shrunk in
+their own process; run through `scripts/profile_loop.py`, so engine262 did not judge the
+findings), Rhino 1.9.2, seed 11, seeded with the 462-entry corpus of `runs/judge-2026-11-16/`.
+Kept under `runs/fuzz-2026-11-17-perf-60m/` (`min/` has every reproducer after `oxpecker
+shrink --budget 400`, `reduced/` the hand reductions).
+
+| | 2026-11-17, 1.9.2, one hour, seeded |
+|---|---|
+| runs (each in both modes) | 136 197 (37.8 a second, steady over the hour) |
+| corpus entries | 462 seeded, 1 732 at the end |
+| Rhino covered | 58.8 % of lines, 49.8 % of branches, 58.2 % of methods (three-hour fresh campaign of 2026-11-02: 56 % and 47 %) |
+| probes covered | 36 870 at the start, 44 027 at the end (the two JVMs' counts added up); 22 a minute in the last quarter, doubling the run would add about 2.5 % |
+| hard verdicts (continuations) | 7 337 (6 020) |
+| new findings | 40 (37 shrunk, 3 recorded as found); 51 signatures in `hard.jsonl` |
+| reproducers written | 33 |
+| new root causes | 5.5 `Date` assertion, 5.5 typed array from a 2^31 array; new forms of 5.8 and of 5.5's Java wrapper `__proto__` |
+
+What the 33 reproducers and the 16 signatures without one were, after `oxpecker shrink` on
+each (the two continuation signatures aside):
+
+- **Known bugs in new shapes, 33:** 5.1's write-back eight times (`super.__proto__ ??=` and
+  `||=` over an Object, Array, Date, RegExp, Math, WeakSet, Int8Array and Float64Array
+  prototype); 5.1's wrong receiver five times (`super.length ||=` and `<<=` over an
+  Int8Array, `super.__proto__ <<=` over a BigInt64Array, and `super.__proto__ +=` over a Java
+  array twice, where the interpreter's wrong receiver reaches 5.5's `__proto__` crash); 3.4
+  eight times (`~p`, `-p`, `v % v`, `0 < p` and `v < 2` with a BigInt, shown as a `TypeError` name,
+  a missing trace step or a later statement not run); 3.3 four times; 3.2 three times; 5.10
+  three times; 5.9 twice (`with` over a Java array and over `J`).
+- **Known crashes, 4:** the generator `let` before `yield` (5.3), `TypedArray.set()` with no
+  arguments, the string-doubling `NegativeArraySizeException` and
+  `new Int8Array(2147483646)` running the JVM out of memory (all 5.5).
+- **Continuations in a `try`, 4:** `new Continuation()` throws a catchable error compiled, so
+  the `catch` runs and a later probe differs (5.6). The known-signature check does not see
+  these, since the status is `ok` in both modes.
+- **New, 4:** `new Date(-2147483648, -2147483648)` and a typed array from an array of length
+  2^31 (both 5.5), `super` in a `with` block or a for-let body (5.8, second form),
+  `J.echo("").__proto__` (5.5, fixed on master).
+- **Harness artefacts, 4 signatures, not Rhino bugs:**
+  - Three are the overload list in a Java method's source text (`function sum() {/* int
+    sum(int[]) double sum(double[]) */}`) coming out in a different order in each mode. With a
+    JVM per mode the two lists come from two JVMs, and Java does not fix the order reflection
+    returns methods in. The shrunk programs do not show it, because it depends on the JVM, not
+    the program. The canonicaliser should sort or mask that list before `--mode-jvms` is used
+    for a real campaign.
+  - One is `J.size(null)`: the harness's own Java method throws a `NullPointerException`,
+    which the harness reports as a crash when the script does not catch it. Inside
+    `try`/`catch` both modes agree.
+
+**Judged on engine262 afterwards** (`oxpecker judge` on the 49 shrunk programs; in `oxpecker
+fuzz` the shrink process judges each finding itself, and `scripts/profile_loop.py` now does
+too when `judge/` is installed):
+
+| label | count | what they are |
+|---|---|---|
+| compiled-wrong | 18 | 3.4 seven times, 3.3 four, 3.2 three, 5.10 three, the generator `let` crash of 5.3 |
+| interpreted-wrong | 10 | 5.1: the write-back eight times, the wrong receiver twice |
+| all-wrong | 3 | both modes crash where engine262 runs or throws a `TypeError`: the `Date` assertion, `TypedArray.set()`, `new Int8Array(2147483646)` |
+| not-judged | 16 | 13 use Java (`J`), one continuations, two engine262 could not run (the 2^31-length array timed out after 60 s, the doubled string is too long for it) |
+| inconclusive | 2 | two of the overload-order artefacts: in one JVM the modes agree |
+
+Every judged label agrees with the family's "right" column in §2. Of the new regressions,
+the `Date` crash is all-wrong, `super` in a `with` block compiled-wrong, and the other two are
+not judged (timeout, Java). One shrunk program, `min/hard-e662570ac4.js` (3.4, a BigInt stored
+into a number-typed local), replays as equal although the 260-line original still shows the
+difference: `oxpecker shrink` kept a candidate that no longer reproduces, which needs looking
+at.
 
 Two lessons that repeat: exact signatures are too fine when the probe prints an object (every
 prototype shape is a new signature for one bug) and too coarse when only the status differs

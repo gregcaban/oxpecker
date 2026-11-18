@@ -178,10 +178,10 @@ class Type:
     def join(self, other: Type) -> Type:
         """Union: possible kinds united, everything else kept only when both agree
         (TypeSystem.swift:920-1098, without the definite set)."""
-        if self.is_nothing:
-            return other
-        if other.is_nothing:
+        if self is other or not other.possible:
             return self
+        if not self.possible:
+            return other
         element = None
         if self.element is not None and other.element is not None:
             element = self.element.join(other.element)

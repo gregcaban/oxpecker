@@ -166,7 +166,7 @@ def test_a_missed_entry_is_rebuilt_from_its_parent_exactly_as_a_full_replay(tmp_
     """A cache miss replays only the entry's own round on top of its parent's lineage; on the
     three-hour corpus a full replay cost about 0.23 s per mutation step (lineages to 19 steps)."""
     fuzz(corpus_dir=tmp_path / "corpus", options=OPTIONS, iterations=150, steps=STEPS, seed=4, runner=FakeRunner(),
-         findings_dir=tmp_path / "findings", shrink_budget=5, quiet=True)
+         findings_dir=tmp_path / "findings", shrink_budget=5, quiet=True, pipeline=False)   # this seed's corpus, drawn in step
     corpus = Corpus(tmp_path / "corpus")
     children = [e for e in corpus.entries if e.parent is not None]
     assert len(children) >= 5 and max(len(e.steps) for e in children) > STEPS      # more than one round deep
@@ -251,6 +251,94 @@ def test_loop_grows_the_corpus_and_finds_and_shrinks_the_planted_bug(tmp_path: P
     assert log and log[0]["signature"].startswith("hard:")
 
 
+def test_the_pipelined_loop_runs_one_program_at_a_time_and_processes_every_run(tmp_path: Path):
+    """With `pipeline` the next program is drawn while the current one runs on a thread: never two
+    runs at once (the JVM answers one request at a time, and shrinking uses it too), every run
+    processed, the last one included, and the same loop from the same seed every time."""
+    import threading
+
+    class Watching(FakeRunner):
+        def __init__(self):
+            super().__init__()
+            self.running = threading.Lock()
+            self.threads: set[str] = set()
+
+        def __call__(self, lineage, require=None):
+            assert self.running.acquire(blocking=False), "two runs at once"
+            try:
+                self.threads.add(threading.current_thread().name)
+                return super().__call__(lineage, require)
+            finally:
+                self.running.release()
+
+    def run(name: str, **kw):
+        runner = Watching()
+        summary = fuzz(corpus_dir=tmp_path / name, options=OPTIONS, iterations=60, steps=STEPS, seed=7, runner=runner,
+                       findings_dir=tmp_path / (name + "-findings"), shrink_budget=5, quiet=True, **kw)
+        return runner, summary
+
+    runner, summary = run("a")
+    stats = summary["stats"]
+    assert summary["runs"] == 60
+    assert any(t.startswith("oxpecker-run") for t in runner.threads)
+    assert stats.get("equal", 0) + stats.get("hard", 0) == 60 - stats.get("rejected", 0)          # every program drawn was run and judged
+    assert summary["corpus"] == stats["corpus-added"] > 0
+    again, summary2 = run("b")
+    assert summary2["stats"] == stats and Corpus(tmp_path / "b").entries[-1].choices == Corpus(tmp_path / "a").entries[-1].choices
+    serial, _ = run("c", pipeline=False)
+    assert not any(t.startswith("oxpecker-run") for t in serial.threads)
+
+
+def test_generator_processes_draw_what_the_loop_runs_and_the_corpus_replays(tmp_path: Path):
+    """`generators=N`: N processes draw, the loop picks parents, runs and keeps the corpus. The
+    results are taken in the order asked for, so the loop is the same from the same seed whichever
+    process answers first; an entry's choices replay to the program that ran; children of entries
+    found this run are drawn (their lineage handed to the generator pickled, or rebuilt there)."""
+    def run(name: str):
+        runner = FakeRunner()
+        summary = fuzz(corpus_dir=tmp_path / name, options=OPTIONS, iterations=70, steps=STEPS, seed=3, runner=runner,
+                       findings_dir=tmp_path / (name + "-findings"), shrink_budget=0, quiet=True, generators=2)   # the shrinker's
+        # runs are not seeded, and what they happen to cover first changes which later runs bring new probes
+        return runner, summary, Corpus(tmp_path / name)
+
+    runner, summary, corpus = run("a")
+    stats = summary["stats"]
+    assert summary["runs"] == 70 and stats["extended"] + stats["fresh"] == 70 - stats.get("rejected", 0)
+    assert summary["corpus"] == stats["corpus-added"] == len(corpus.entries) > 3
+    assert summary["stats"]["steps-attempted"] > 0 and any(m["corpus"] for m in summary["mutators"].values())
+    seen: set[str] = set()
+    for k, e in enumerate(corpus.entries):
+        lineage = corpus.replay(k, OPTIONS)
+        assert [s.name for s in lineage.steps] == e.steps and len(lineage.code) == e.instructions
+        new = {type(i.op).__name__ for i in lineage.code} - seen       # the probes it was kept for
+        assert len(new) >= e.new_probes > 0
+        seen |= new
+    children = [e for e in corpus.entries if e.parent is not None]
+    assert children and all(len(e.steps) >= len(corpus.by_id[e.parent].steps) for e in children)
+    _, summary2, corpus2 = run("b")
+    assert summary2["stats"] == stats and [e.choices for e in corpus2.entries] == [e.choices for e in corpus.entries]
+
+
+def test_a_generator_extends_a_parent_from_its_pickle_exactly_as_from_its_choices(tmp_path: Path):
+    import pickle
+    from oxpecker import fuzz as fz
+    lineage, choices = draw_lineage(OPTIONS, STEPS, seed=6)
+    corpus = Corpus(tmp_path)
+    corpus.add(Entry(0, encode(choices), lineage.template, [s.name for s in lineage.steps], 1, cap=lineage.cap))
+    drawn = []
+    for parent_pickle in (None, pickle.dumps(lineage)):
+        fz._GEN.clear()
+        fz._generator_init(OPTIONS, STEPS, 20, str(corpus.file))
+        drawn.append(fz.generate(0, 99, parent_pickle))
+        assert fz._GEN["lineages"].misses == (1 if parent_pickle is None else 0)
+    a, b = drawn
+    assert a.extended and a.choices == b.choices and a.source == b.source and a.source != lineage.source
+    assert decode(a.choices)[:len(choices) - 1] == choices[:-1] or lineage.at_cap
+    assert pickle.loads(a.lineage).source == a.source and a.code == replay(decode(a.choices), OPTIONS, a.cap).code
+    assert fz.generate(None, 5).extended is False
+    fz._GEN.clear()
+
+
 def test_shrinker_returns_a_smaller_lineage_that_still_fails():
     runner = FakeRunner()
     found = None
@@ -294,6 +382,34 @@ def test_compaction_keeps_the_probes_and_does_not_grow_the_entry():
     small_choices, small, probes = result
     assert probes and len(small.code) <= len(lineage.code)
     assert runner(small, require=probes).required_reached == probes
+
+
+@pytest.mark.slow
+def test_findings_are_shrunk_and_recorded_in_their_own_process(tmp_path: Path):
+    """`shrink_process`: the loop hands a new finding to a process with its own JVM and goes on;
+    the run ends when the findings are shrunk, each with a reproducer no longer than what the
+    loop saw, and the log both processes append to holds whole lines."""
+    from oxpecker import HARNESS_BIN
+    from oxpecker.harness.client import HarnessClient
+    if not HARNESS_BIN.exists():
+        pytest.skip("harness not built: cd harness-java && ./gradlew fatJar")
+    out = tmp_path / "findings"
+    with HarnessClient(quiet=True, coverage=True) as client:
+        if not client.info().get("coverage"):
+            pytest.skip("coverage agent not attached")
+        summary = fuzz(corpus_dir=tmp_path / "corpus", options=GenOptions(), iterations=120, seed=1, client=client,
+                       findings_dir=out, known=set(), shrink_budget=10, source_shrink_budget=20, quiet=True,
+                       shrink_process=True)
+    stats = summary["stats"]
+    found = stats["new-findings"]
+    assert summary["runs"] == 120 and found > 0                     # nothing known: the first hard verdicts are new
+    assert stats.get("findings-unshrunk", 0) < found
+    reproducers = sorted(out.glob("hard-*.js"))
+    assert 1 <= len(reproducers) <= found                           # two findings can shrink to one signature
+    records = [json.loads(ln) for ln in (out / "hard.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(records) >= len(reproducers) and all(r["signature"] and r["source"] for r in records)
+    assert all(p.read_text(encoding="utf-8").startswith("// oxpecker-expect: hard") for p in reproducers)
+    assert min(len(p.read_text(encoding="utf-8").splitlines()) for p in reproducers) < 40      # shrunk: programs run to 90 lines
 
 
 @pytest.mark.slow

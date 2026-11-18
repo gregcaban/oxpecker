@@ -14,6 +14,10 @@ TOGGLE_LET = "let"     # named here so the mutators can test for it without spel
 DEFAULT_MIN_STATEMENTS = 3
 
 
+def _rebuild(fields: dict) -> "GenOptions":
+    return GenOptions(**fields)
+
+
 @dataclass(frozen=True)
 class GenOptions:
     min_statements: int | None = None   # None: DEFAULT_MIN_STATEMENTS, lowered to max_statements when that is smaller
@@ -46,6 +50,10 @@ class GenOptions:
         if unknown:
             raise ValueError(f"unknown toggles: {sorted(unknown)}")
         object.__setattr__(self, "weights", MappingProxyType(dict(self.weights)))
+
+    def __reduce__(self):
+        """Picklable (a mappingproxy is not): the options go to the generator processes."""
+        return (_rebuild, ({f: (dict(self.weights) if f == "weights" else getattr(self, f)) for f in self.__dataclass_fields__},))
 
     def __hash__(self) -> int:
         return hash((self.min_statements, self.max_statements, self.max_depth, self.probe_every, self.probe_width,

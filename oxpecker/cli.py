@@ -602,7 +602,13 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
         print("--judge: engine262 is not installed (npm install --prefix judge)", file=sys.stderr)
         return 2
     options = _gen_options(args)
-    with HarnessClient(quiet=True, coverage=True) as client, contextlib.ExitStack() as stack:
+    mode_jvms = args.workers > 1 if args.mode_jvms is None else args.mode_jvms
+    if mode_jvms:
+        from .harness.client import ModeClients
+        own = ModeClients(quiet=True, coverage=True)
+    else:
+        own = HarnessClient(quiet=True, coverage=True)
+    with own as client, contextlib.ExitStack() as stack:
         if not client.info().get("coverage"):
             print("coverage agent not attached: the harness build must include jacocoagent.jar", file=sys.stderr)
             return 2
@@ -620,7 +626,14 @@ def cmd_fuzz(args: argparse.Namespace) -> int:
                        shrink_budget=args.shrink_budget, compact_budget=args.compact_budget,
                        source_shrink_budget=args.source_shrink_budget,
                        language_version=args.language_version, client=client, quiet=args.quiet,
-                       max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings)
+                       max_depth=args.max_lineage_depth, verdict=verdict, judge_findings=judge_findings,
+                       pipeline=args.pipeline, generators=args.workers if args.workers > 1 else 0, wall_ms=args.wall_ms,
+                       shrink_process=args.workers > 1 if args.shrink_process is None else args.shrink_process)
+    # CPU spent, now that the JVMs and the generator processes have exited and been waited for:
+    # this process (picking, comparing; drawing too without --workers) and its children
+    t = os.times()
+    summary["cpu_seconds"] = {"python": round(t.user + t.system, 1), "children": round(t.children_user + t.children_system, 1)}
+    (Path(args.corpus) / "last-run.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(json.dumps({k: v for k, v in summary.items() if k not in ("signatures", "coverage")}, indent=1))
     if summary.get("coverage"):
         from . import coverage
@@ -713,6 +726,18 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("--strict", action="store_true")
     fz.add_argument("--language-version", type=int, default=200)
     fz.add_argument("-q", "--quiet", action="store_true")
+    fz.add_argument("--workers", type=int, default=1, metavar="N",
+                    help="draw the programs in N generator processes; this one picks parents, runs them in the one JVM, "
+                         "judges and keeps the corpus (drawing is the slow, single-threaded half of the loop)")
+    fz.add_argument("--wall-ms", type=int, default=1500,
+                    help="a mode's time limit; past it the run counts as timed out (default 1500; oxpecker run and diff use 5000)")
+    fz.add_argument("--shrink-process", action=argparse.BooleanOptionalAction, default=None,
+                    help="shrink and record new findings in a process of their own, with its own JVM, while the loop "
+                         "goes on (default: with --workers)")
+    fz.add_argument("--mode-jvms", action=argparse.BooleanOptionalAction, default=None,
+                    help="one JVM per mode, run at once, instead of one JVM running the modes in turn (default: with --workers)")
+    fz.add_argument("--pipeline", action=argparse.BooleanOptionalAction, default=True,
+                    help="without --workers: draw the next program while the current one runs (default: on)")
     fz.set_defaults(fn=cmd_fuzz)
 
     sh = sub.add_parser("shrink", help="statement-level shrinking of a reproducer while its coarse verdict holds")

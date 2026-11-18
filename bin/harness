@@ -19,4 +19,9 @@ AGENT=""
 if [ -n "$OXPECKER_COVERAGE" ]; then
   AGENT="-javaagent:$LIBS/jacocoagent.jar=output=none,includes=org.mozilla.javascript.*,excludes=org.mozilla.javascript.gen.*"
 fi
-exec "$JAVA" -Xss64m $AGENT -jar "$JAR" "$@"
+# The JVM's own threads: left to its defaults on a 16-thread machine, the collector and the JIT
+# compiler threads took 2.7 cores for one thread of cases; with two of each the harness ran more
+# cases a second (43 against 31) on 1.8 cores (scripts/profile_loop.py jvm). OXPECKER_JAVA_OPTS
+# replaces them.
+OPTS="${OXPECKER_JAVA_OPTS--XX:+UseParallelGC -XX:ParallelGCThreads=2 -XX:CICompilerCount=2}"
+exec "$JAVA" -Xss64m $OPTS $AGENT -jar "$JAR" "$@"

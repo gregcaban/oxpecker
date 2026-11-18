@@ -48,6 +48,34 @@ final class Scopes {
         return cx.executeScriptWithContinuations(script, (VarScope) scope);
     }
 
+    // NOTE: the three methods below are written from memory of the 2.0 API and were NOT compiled
+    // against master (no master jar was available when they were added); fix them first if
+    // `oxpecker build-harness master` fails here.
+
+    /** Calls with an arbitrary JS value as {@code this} (2.0: any Object is accepted). */
+    static Object callThis(Callable f, Context cx, Object scope, Object thisObj, Object[] args) {
+        return f.call(cx, (VarScope) scope, thisObj, args);
+    }
+
+    /** The value a JS {@code catch (e)} binds for this exception (the interpreter's own conversion). */
+    static Object catchValue(RuntimeException e, Context cx, Object scope) {
+        if (e instanceof org.mozilla.javascript.JavaScriptException jse) return jse.getValue();
+        Object cs = org.mozilla.javascript.ScriptRuntime.newCatchScope(e, null, "e", cx, (VarScope) scope);
+        return ScriptableObject.getProperty((ScriptableObject) cs, "e");
+    }
+
+    /** A fresh plain object inheriting from the scope's Object.prototype. */
+    static ScriptableObject newObject(Context cx, Object scope) {
+        return (ScriptableObject) cx.newObject((VarScope) scope);
+    }
+
+    /** The {@code this} for a call on a symbol value: 2.0 symbol values are bare SymbolKeys, and the
+     *  builtins' getters cast {@code this} to Scriptable, so it is boxed as a script's call would. */
+    static Object symbolThis(Context cx, Object scope, Object symbol) {
+        if (symbol instanceof org.mozilla.javascript.Scriptable) return symbol;
+        return org.mozilla.javascript.ScriptRuntime.toObject(cx, (VarScope) scope, symbol);
+    }
+
     static Object resumeContinuation(Context cx, Object continuation, Object scope, Object result) {
         return cx.resumeContinuation(continuation, (VarScope) scope, result);
     }

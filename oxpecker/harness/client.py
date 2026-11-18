@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,6 +62,106 @@ class RunResult:
 
 class HarnessError(RuntimeError):
     pass
+
+
+class ModeClients:
+    """A HarnessClient look-alike over one JVM per mode: `run` sends the program to each mode's
+    JVM at once and puts the outcomes together, so a case costs its slower mode instead of both
+    in turn. Once several processes draw programs (`oxpecker fuzz --workers N`) the single JVM
+    running the two modes one after the other is what the loop waits for.
+
+    Coverage is kept per JVM: a probe is new when the mode's own JVM had not reached it. Both
+    JVMs run every program, so this differs from one shared store only where the modes take
+    different paths through Rhino. `coverage_save(PATH)` writes the first mode's store to PATH
+    and the others' to PATH.MODE; `coverage_load` reads them back the same way (a lone PATH,
+    from a single-JVM run or `oxpecker cmin`, goes into every JVM). `coverage_report`, asked for
+    once at the end of a run, first merges the stores into the first JVM and saves that to the
+    checkpoint path, so PATH ends as the union a single-JVM run reads."""
+
+    def __init__(self, modes: tuple[str, ...] = DEFAULT_MODES, **kwargs: Any):
+        self.modes = tuple(modes)
+        self.clients = {m: HarnessClient(**kwargs) for m in self.modes}
+        self.target = self.clients[self.modes[0]].target
+        self.quiet = self.clients[self.modes[0]].quiet
+        self._pool = ThreadPoolExecutor(len(self.modes), thread_name_prefix="oxpecker-mode")
+        self._checkpoint: str | None = None
+
+    def _path(self, mode: str, path: str) -> str:
+        return path if mode == self.modes[0] else f"{path}.{mode}"
+
+    def _each(self, fn):
+        """`fn(mode, client)` on every JVM at once; the results by mode."""
+        futures = {m: self._pool.submit(fn, m, c) for m, c in self.clients.items()}
+        return {m: f.result() for m, f in futures.items()}
+
+    def start(self) -> None:
+        self._each(lambda m, c: c.start())
+
+    def stop(self) -> None:
+        self._each(lambda m, c: c.stop())
+        self._pool.shutdown()
+
+    def __enter__(self) -> "ModeClients":
+        self.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.stop()
+
+    @property
+    def restarts(self) -> int:
+        return sum(c.restarts for c in self.clients.values())
+
+    @property
+    def coverage_checkpoint(self) -> str | None:
+        return self._checkpoint
+
+    @coverage_checkpoint.setter
+    def coverage_checkpoint(self, value: str | None) -> None:
+        self._checkpoint = value
+        for m, c in self.clients.items():
+            c.coverage_checkpoint = self._path(m, value) if value else None
+
+    def info(self) -> dict[str, Any]:
+        return self.clients[self.modes[0]].info()
+
+    def coverage_count(self) -> int:
+        """The JVMs' covered probes added up, as `coverage_save` returns them: code both modes
+        reach counts twice, so the curve over a run is in these units throughout, and the
+        report at its end gives the union."""
+        return sum(self._each(lambda m, c: c.coverage_count()).values())
+
+    def coverage_save(self, path: str) -> int:
+        return sum(self._each(lambda m, c: c.coverage_save(self._path(m, str(path)))).values())
+
+    def coverage_load(self, path: str) -> int:
+        def load(m: str, c: "HarnessClient") -> int:
+            own = self._path(m, str(path))
+            return c.coverage_load(own if os.path.exists(own) else str(path))
+        return max(load_counts.values()) if (load_counts := self._each(load)) else 0
+
+    def coverage_report(self) -> dict[str, Any]:
+        first = self.clients[self.modes[0]]
+        if self._checkpoint:
+            self.coverage_save(self._checkpoint)
+            for m in self.modes[1:]:
+                first.coverage_load(self._path(m, self._checkpoint))
+            first.coverage_save(self._checkpoint)
+        return first.coverage_report()
+
+    def run(self, source: str, *, modes: tuple[str, ...] = DEFAULT_MODES, id: str | None = None, **kwargs: Any) -> RunResult:
+        case_id = id or uuid.uuid4().hex[:12]
+        missing = [m for m in modes if m not in self.clients]
+        if missing:
+            raise HarnessError(f"no JVM for modes {missing}: this client runs {list(self.modes)}")
+        futures = [(m, self._pool.submit(self.clients[m].run, source, modes=(m,), id=case_id, **kwargs)) for m in modes]
+        results: dict[str, Outcome] = {}
+        restarted = False
+        for m, f in futures:
+            r = f.result()
+            results.update(r.results)
+            restarted = restarted or r.restarted
+        return RunResult(case_id, results, restarted=restarted)
 
 
 class HarnessClient:

@@ -13,6 +13,8 @@ can run it per emitted instruction."""
 
 from __future__ import annotations
 
+import threading
+
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Mapping, Sequence
@@ -493,9 +495,10 @@ def _join_states(pre: Mapping[Var, Type], states: Sequence[Mapping[Var, Type]]) 
     for v in keys:
         ty = pre.get(v, NOTHING)
         for s in states:
-            if v in s:
-                ty = ty.join(s[v])
-        if not ty.is_nothing:
+            other = s.get(v)
+            if other is not None and other is not ty:      # mostly the same object: the type did not change
+                ty = ty.join(other)
+        if ty.possible:
             out[v] = ty
     return out
 
@@ -873,25 +876,31 @@ def _types(code: Sequence[Instruction], param_types: Mapping[int, tuple[Type, ..
     typer = Typer(code, param_types)
     loop_passes: set[int] = set()
 
-    def record(slot: list[dict[Var, Type]], i: int) -> None:
-        snap = typer.snapshot()
+    # Snapshots are never changed once taken (a second pass replaces a slot with a new dict), so
+    # the state after one instruction is stored as the state before the next: the typer does
+    # nothing in between, on the straight path or on the jump back to a loop's start.
+    def record(slot: list[dict[Var, Type]], i: int, snap: dict[Var, Type]) -> None:
         slot[i] = _join_states(slot[i], [snap]) if slot[i] else snap
 
+    snap = typer.snapshot()
     i = 0
     while i < n:
         instr = code[i]
-        record(before, i)
+        record(before, i, snap)
         typer.step(i, instr)
+        snap = typer.snapshot()
         if isinstance(instr.op, _LOOP_ENDS) and not isinstance(instr.op, O.EndCodeString):
             begin_i = loop_pass_start(code, i)
             if begin_i not in loop_passes:
                 loop_passes.add(begin_i)
-                record(after, i)
+                record(after, i, snap)
                 i = begin_i
                 continue
-        record(after, i)
+        record(after, i, snap)
         for v, ty in after[i].items():
-            joined[v] = joined.get(v, NOTHING).join(ty)
+            cur = joined.get(v)
+            if cur is not ty:                 # one check per variable per instruction: most types stand
+                joined[v] = NOTHING.join(ty) if cur is None else cur.join(ty)
         i += 1
     return before, after, joined, dict(typer.returns), dict(typer.alias)
 
@@ -1051,12 +1060,31 @@ def analyse(code: Sequence[Instruction], *, strict: bool = False,
             param_types: Mapping[int, tuple[Type, ...]] | None = None) -> Analysis:
     """Everything the analysis knows about a program. Accepts instructions, a Program or a Builder."""
     code = tuple(getattr(code, "code", code))
+    cached = _RECENT.get(id(code)) if not param_types else None
+    if cached is not None and cached[0] is code and cached[1] == strict:
+        return cached[2]
     check(code)
     visible_at, ctx, storage, defs, uses, assignments, function_of, strict_at, labels = _structure(code, strict)
     before, after, joined, returns, alias = _types(code, param_types or {})
     rhino = rhino_model(code, storage, defs, assignments, function_of)
-    return Analysis(code, visible_at, ctx, storage, defs, uses, assignments, function_of, strict_at, labels,
-                    joined, returns, rhino, before, after, alias)
+    an = Analysis(code, visible_at, ctx, storage, defs, uses, assignments, function_of, strict_at, labels,
+                  joined, returns, rhino, before, after, alias)
+    if not param_types:
+        with _RECENT_LOCK:                       # the fuzz loop lifts on a second thread
+            _RECENT[id(code)] = (code, strict, an)
+            if len(_RECENT) > _RECENT_SIZE:
+                del _RECENT[next(iter(_RECENT))]
+    return an
+
+
+# The analyses of the code tuples seen last, by the tuple's identity (the entry holds the tuple,
+# so its id cannot be reused while the entry lives). One mutation step asks for the same code's
+# analysis several times: `verify` of the child, `lift` of the child to see that it lifts, the
+# next step's mutator, and the lift to source at the end; a program was analysed 6.5 times on
+# average. An Analysis is read-only to its users, so they can share one.
+_RECENT: dict[int, tuple[tuple[Instruction, ...], bool, Analysis]] = {}
+_RECENT_SIZE = 64
+_RECENT_LOCK = threading.Lock()
 
 
 _RECEIVER_READS = (O.GetProperty, O.DeleteProperty, O.GetElement, O.DeleteElement, O.GetComputedProperty,
